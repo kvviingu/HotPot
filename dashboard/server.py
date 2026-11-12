@@ -238,7 +238,7 @@ def fetch_sample_zip(sha: str, where: str) -> bytes:
     d, ext = SAMPLE_DIRS[where]
     remote = f"sudo sh -c 'cd {d} && test -f {sha}{ext} && zip -q -P infected - {sha}{ext}'"
     flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    r = subprocess.run(ssh_cmd(where == "backend", remote), capture_output=True, timeout=120, creationflags=flags)
+    r = run_tree(ssh_cmd(where == "backend", remote), capture_output=True, timeout=120, creationflags=flags)
     if r.returncode != 0 or not r.stdout.startswith(b"PK"):
         raise RuntimeError("sample not available on the VM " + r.stderr.decode("utf-8", "replace").strip()[-200:])
     if len(r.stdout) > MAX_SAMPLE_ZIP:
@@ -250,7 +250,7 @@ def remote_pull(arg: str, backend: bool) -> list:
     """Run REMOTE_SCRIPT as root on the front VM, or on the backend VM through the front VM."""
     cmd = ssh_cmd(backend, f"sudo python3 - {arg} backend" if backend else "sudo python3 - " + arg)
     flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    r = subprocess.run(cmd, input=REMOTE_SCRIPT.encode(), capture_output=True, timeout=180, creationflags=flags)
+    r = run_tree(cmd, input=REMOTE_SCRIPT.encode(), capture_output=True, timeout=180, creationflags=flags)
     if r.returncode != 0:
         raise RuntimeError(("backend " if backend else "") + "ssh failed: "
                            + r.stderr.decode("utf-8", "replace").strip()[-300:])
@@ -638,7 +638,7 @@ def scan_vm(where: str) -> dict:
     payload = json.dumps({"s": SCAN_SCRIPT, "dir": d, "ext": ext, "rules": rules, "known": known}).encode()
     remote = """sudo python3 -I -c 'import sys,json;d=json.load(sys.stdin);exec(d["s"],{"D":d})'"""
     flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    r = subprocess.run(ssh_cmd(where == "backend", remote), input=payload, capture_output=True, timeout=1200, creationflags=flags)
+    r = run_tree(ssh_cmd(where == "backend", remote), input=payload, capture_output=True, timeout=1200, creationflags=flags)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.decode("utf-8", "replace").strip()[-300:] or "ssh failed")
     res = json.loads(r.stdout.decode("utf-8"))
@@ -832,7 +832,7 @@ def fetch_tty(sha: str) -> bytes:
         with open(p, "rb") as f:
             return f.read()
     flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    r = subprocess.run(ssh_cmd(False, f"sudo head -c {TTY_MAX} {COWRIE_TTY}/{sha}"), capture_output=True,
+    r = run_tree(ssh_cmd(False, f"sudo head -c {TTY_MAX} {COWRIE_TTY}/{sha}"), capture_output=True,
                        timeout=120, creationflags=flags)
     if r.returncode != 0:
         raise RuntimeError("recording not available on the VM")
@@ -990,11 +990,38 @@ VM_STATUS = {"t": 0, "data": None}
 vm_status_lock = threading.Lock()
 
 
+def run_tree(cmd, input=None, capture_output=True, timeout=None, creationflags=0):
+    """subprocess.run for ssh. On timeout it kills the whole process tree: the backend jump runs a second
+    ssh that keeps the output pipes open, and on Windows plain run() then waits for it forever (a frozen
+    backend once left the Status tab and every later status request stuck)."""
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags,
+                         start_new_session=os.name != "nt")
+    try:
+        out, err = p.communicate(input, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True,
+                           creationflags=subprocess.CREATE_NO_WINDOW)
+        else:
+            try:
+                os.killpg(p.pid, 9)
+            except OSError:
+                pass
+        p.kill()
+        try:
+            p.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass                                   # something still holds the pipes: give up on it
+        raise
+    return subprocess.CompletedProcess(cmd, p.returncode, out, err)
+
+
 def _vm_probe(backend: bool) -> dict:
     flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     t0 = time.time()
     try:
-        r = subprocess.run(ssh_cmd(backend, "sudo python3 - " + ("backend" if backend else "front")),
+        r = run_tree(ssh_cmd(backend, "sudo python3 - " + ("backend" if backend else "front")),
                            input=STATUS_SCRIPT.encode(), capture_output=True, timeout=60, creationflags=flags)
         if r.returncode != 0:
             return {"ok": False, "error": r.stderr.decode("utf-8", "replace").strip()[-300:] or "ssh failed"}
@@ -3670,7 +3697,39 @@ class Handler(BaseHTTPRequestHandler):
         return self.send(404, b"not found", "text/plain")
 
 
+_LOCK = None
+
+
+def single_instance(port: int) -> None:
+    """Two dashboards syncing into the same data folder would append the same log lines twice."""
+    global _LOCK
+    os.makedirs(DATA, exist_ok=True)
+    path = os.path.join(DATA, ".dashboard.lock")
+    f = open(path, "a+")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        other = ""
+        if os.name != "nt":                     # on Windows the other copy's lock blocks reading it
+            f.seek(0)
+            other = f.read().strip()
+        sys.exit(f"Another dashboard already uses {DATA}" + (f" ({other})" if other else "") +
+                 ". Open that one, or stop it first.")
+    if os.name != "nt":                         # Windows locks the byte we would write to
+        f.truncate(0)
+        f.write(f"http://127.0.0.1:{port}")
+        f.flush()
+    _LOCK = f
+
+
 def main() -> None:
+    single_instance(int(os.environ.get("PORT") or CFG.get("port", 8787)))
     os.makedirs(MIRROR, exist_ok=True)
     rebuild()
     threading.Thread(target=geo.ensure, daemon=True).start()

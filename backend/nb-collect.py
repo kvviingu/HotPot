@@ -170,9 +170,10 @@ def audit_chunks(st):
                         cut = prev
                     if cut > 0:
                         end = cut
+            pos = {"ino": n, "off": start + end}
             if end:
-                yield [ln.decode("utf-8", "replace") for ln in data[:end].splitlines()]
-            st["audit"] = {"ino": n, "off": start + end}
+                yield [ln.decode("utf-8", "replace") for ln in data[:end].splitlines()], pos
+            st["audit"] = pos
             start += end
             if not end or start >= size:
                 break
@@ -184,8 +185,13 @@ def audit_chunks(st):
 
 def parse_audit(st, out):
     urls = []
-    for lines in audit_chunks(st):
+    for lines, pos in audit_chunks(st):
         urls += parse_chunk(st, out, lines)
+        # events written, then the new position saved: a run killed later (out of memory, timeout)
+        # doesn't make the next one write the same events again
+        st["audit"] = pos
+        out.f.flush()
+        save_state(st)
     procs, roots = st.get("procs", {}), st.get("roots", {})
     if len(procs) > 30000:                 # pids recycle; keep the newest entries
         st["procs"] = dict(list(procs.items())[-20000:])
