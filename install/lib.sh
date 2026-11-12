@@ -68,3 +68,30 @@ setup_sites() {
     tr ', ' '\n\n' <<< "${EXTRA_APT_MIRRORS:-}" | grep -v '^$' || true; } \
     | grep -E '^\.?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$' | sort -u     # plain host names only
 }
+
+# ---- data retention -----------------------------------------------------------------------------------
+# daily hotpot-retention.timer: old logs, recordings, harvests and samples (install/retention.sh)
+install_retention() {
+  install -m 750 "$LIB_DIR/retention.sh" /usr/local/sbin/hotpot-retention
+  cat > /etc/systemd/system/hotpot-retention.service <<UNIT
+[Unit]
+Description=HotPot clean-up: delete old logs and samples, keep the disk below DISK_MAX_PERCENT
+[Service]
+Type=oneshot
+Nice=10
+IOSchedulingClass=idle
+ExecStart=/usr/local/sbin/hotpot-retention
+UNIT
+  cat > /etc/systemd/system/hotpot-retention.timer <<UNIT
+[Unit]
+Description=Daily HotPot clean-up
+[Timer]
+OnCalendar=*-*-* 05:10:00 UTC
+RandomizedDelaySec=20m
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable --now hotpot-retention.timer >/dev/null
+}

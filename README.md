@@ -117,9 +117,20 @@ Plain-text version:
   you confirm).
 * IP reputation from AbuseIPDB and GreyNoise.
 
+**Sharing**
+* Indicator export from the Intel tab: attacker IPs, SHA-256 hashes of captured files, and the URLs and
+  domains attackers fetched, as a STIX 2.1 bundle, a MISP event, CSV or a plain blocklist, with a TLP
+  marking. Your own IPs, private addresses and the install's own names are always left out.
+* Log forwarding from the dashboard to syslog (RFC 5424 over UDP, TCP or TLS), Elasticsearch or
+  OpenSearch, Splunk HEC, or any HTTP endpoint that takes NDJSON. One JSON document per event; nothing
+  is sent twice, and nothing is lost while the destination is down.
+
 **Operations**
 * Early container reset when an attacker writes persistence (keys, cron, systemd, sudoers and so on),
   on top of the nightly reset.
+* Daily clean-up on both VMs: rotated logs and recordings after `LOG_KEEP_DAYS`, samples and harvests
+  after `SAMPLE_KEEP_DAYS`, and the oldest data first whenever the disk passes `DISK_MAX_PERCENT`.
+  Your dashboard keeps its own copy of every log line, so history is not lost.
 * Weekly report per ISO week, saved every Monday as a self-contained HTML page.
 * Local dashboard with tabs Overview, Sessions, Traps, Statistics, Intel, Samples, Report, Status and
   Settings. The Overview map zooms by region and colours each place by how far its sessions got. Statistics compares each period with the one before it (trends, heatmap, funnels,
@@ -184,6 +195,7 @@ tested from your machine and the move is undone if it cannot be reached
 | `version` | this copy's version |
 | `ports` | tests every public port from your computer: open, closed (nothing listens) or blocked (cloud firewall) |
 | `status` | container and timer health, number of quarantined samples |
+| `cleanup` | disk use per kind of data on the VMs; `cleanup dry-run` lists what the daily clean-up would delete, `cleanup run` runs it now |
 | `dashboard` | writes `dashboard/config.json`, starts the dashboard and opens it. `--autostart on` starts it at login. |
 | `ssh front`, `ssh backend` | a shell (or one command) on either VM |
 

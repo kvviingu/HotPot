@@ -291,6 +291,56 @@
         <p class="note" id="intel-foot"></p>
       </div>
     </div>
+    <form class="panel ioc" id="ioc-form" aria-labelledby="ioc-title">
+      <div class="phead">
+        <div>
+          <h2 id="ioc-title">Export indicators</h2>
+          <p class="note">Attacker IPs, hashes of captured files, and the URLs and domains attackers fetched, for a
+            blocklist, a threat-intel platform or a report. Your own IPs, private addresses and this install's own
+            names are always left out.</p>
+        </div>
+      </div>
+      <div class="ioc-grid">
+        <label>Period
+          <select id="ioc-range">
+            <option value="24h">Last 24 hours</option><option value="7d" selected>Last 7 days</option>
+            <option value="30d">Last 30 days</option><option value="all">All time</option>
+          </select>
+        </label>
+        <label>Attackers
+          <select id="ioc-scope">
+            <option value="engaged">Only those who got further than a scan</option>
+            <option value="all">Every source, scanners too</option>
+          </select>
+        </label>
+        <label>Format
+          <select id="ioc-format">
+            <option value="stix">STIX 2.1 bundle (OpenCTI, TAXII tools)</option>
+            <option value="misp">MISP event (JSON import)</option>
+            <option value="csv">CSV (spreadsheet)</option>
+            <option value="txt">Plain list, one per line (blocklists)</option>
+          </select>
+        </label>
+        <label id="ioc-tlp-label">Sharing (TLP)
+          <select id="ioc-tlp">
+            <option value="clear">TLP:CLEAR, anyone</option>
+            <option value="green">TLP:GREEN, your community</option>
+            <option value="amber">TLP:AMBER, limited</option>
+          </select>
+        </label>
+      </div>
+      <fieldset class="ioc-kinds">
+        <legend>Include</legend>
+        <label class="check"><input type="checkbox" name="ioc-kind" value="ip" checked> IP addresses <span class="count" data-n="ip"></span></label>
+        <label class="check"><input type="checkbox" name="ioc-kind" value="sha256" checked> File hashes (SHA-256) <span class="count" data-n="sha256"></span></label>
+        <label class="check"><input type="checkbox" name="ioc-kind" value="url" checked> URLs <span class="count" data-n="url"></span></label>
+        <label class="check"><input type="checkbox" name="ioc-kind" value="domain" checked> Domains <span class="count" data-n="domain"></span></label>
+      </fieldset>
+      <div class="actions">
+        <button type="submit" class="primary">Download</button>
+        <span class="note" id="ioc-msg" role="status"></span>
+      </div>
+    </form>
   </section>
 
   <!-- Samples ---------------------------------------------------------------------------- -->
@@ -364,6 +414,55 @@
       <input id="s-gn" type="password" spellcheck="false" aria-describedby="s-gn-state">
       <p class="note" id="s-gn-state"></p>
       <label class="check"><input id="s-iprep" type="checkbox"> Check attacker IPs automatically (1 a minute, most interesting sessions first)</label>
+
+      <h2>Forward logs</h2>
+      <p class="note">Sends every new event to your SIEM or log platform after each sync, as one JSON document
+        per event. Only while this dashboard runs; it catches up when you start it again. Turning it on sends
+        new events only, not the history.</p>
+      <label class="check"><input id="s-fw-on" type="checkbox"> Forward new events</label>
+      <label for="s-fw-type">Send to</label>
+      <select id="s-fw-type">
+        <option value="syslog">Syslog (RFC 5424)</option>
+        <option value="elasticsearch">Elasticsearch or OpenSearch (bulk API)</option>
+        <option value="splunk">Splunk (HTTP Event Collector)</option>
+        <option value="http">Any HTTP endpoint (NDJSON POST)</option>
+      </select>
+      <label for="s-fw-addr">Address</label>
+      <input id="s-fw-addr" type="text" spellcheck="false" aria-describedby="s-fw-addr-help">
+      <p class="note" id="s-fw-addr-help"></p>
+      <div class="row" id="s-fw-proto-row">
+        <label for="s-fw-proto">Syslog transport</label>
+        <select id="s-fw-proto">
+          <option value="tcp">TCP</option>
+          <option value="tls">TLS (encrypted)</option>
+          <option value="udp">UDP (events over 60 kB are dropped)</option>
+        </select>
+      </div>
+      <div class="row" id="s-fw-token-row">
+        <label for="s-fw-token" id="s-fw-token-label">Token</label>
+        <input id="s-fw-token" type="password" spellcheck="false" aria-describedby="s-fw-token-state">
+        <p class="note" id="s-fw-token-state"></p>
+      </div>
+      <div class="row" id="s-fw-index-row">
+        <label for="s-fw-index" id="s-fw-index-label">Index</label>
+        <input id="s-fw-index" type="text" spellcheck="false" placeholder="hotpot">
+      </div>
+      <label for="s-fw-sensor">Sensor name (the "sensor" field of every event)</label>
+      <input id="s-fw-sensor" type="text" spellcheck="false" placeholder="hotpot">
+      <label for="s-fw-ca">CA certificate for a private or self-signed certificate (optional: path to a PEM file on this PC)</label>
+      <input id="s-fw-ca" type="text" spellcheck="false">
+      <fieldset class="sources">
+        <legend>Sources</legend>
+        <label class="check"><input type="checkbox" name="fw-src" value="cowrie"> SSH and Telnet (Cowrie)</label>
+        <label class="check"><input type="checkbox" name="fw-src" value="web"> Web honeypot</label>
+        <label class="check"><input type="checkbox" name="fw-src" value="decoys"> Decoy services</label>
+        <label class="check"><input type="checkbox" name="fw-src" value="ids"> Suricata IDS</label>
+        <label class="check"><input type="checkbox" name="fw-src" value="backend"> Real-shell backend</label>
+      </fieldset>
+      <div class="actions">
+        <button type="button" id="s-fw-test">Save and send a test event</button>
+        <span class="note" id="s-fw-state" role="status"></span>
+      </div>
 
       <h2>Dashboard</h2>
       <label for="s-sync">Pull logs every (seconds)</label>

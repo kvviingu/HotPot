@@ -393,12 +393,29 @@ pre { margin: 4px 0 0; padding: 8px 10px; background: var(--sunk); border-radius
 .settings h2 { font-size: 16px; margin-top: 10px; }
 .settings h2:first-child { margin-top: 0; }
 .settings label { color: var(--ink2); font-size: 13px; margin-top: 10px; }
-.settings input[type=password], .settings input[type=text], .settings input[type=number] {
+.settings input[type=password], .settings input[type=text], .settings input[type=number], .settings select {
   background: var(--sunk); border: 1px solid var(--rule); border-radius: 7px; padding: 7px 10px; font-family: var(--f-mono); font-size: 13px; }
 .settings input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .settings .check { display: flex; gap: 8px; align-items: center; color: var(--ink); }
 .settings code { font-family: var(--f-mono); font-size: 12px; }
 .settings .actions { display: flex; gap: 14px; align-items: center; margin-top: 18px; }
+.settings .actions button { white-space: nowrap; }
+.ioc { margin-top: 16px; display: grid; gap: 10px; }
+.ioc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.ioc-grid label { display: grid; gap: 6px; color: var(--ink2); font-size: 13px; }
+.ioc select { background: var(--sunk); border: 1px solid var(--rule); border-radius: 7px; padding: 7px 10px; color: var(--ink); font-size: 13px; }
+.ioc select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ioc-kinds { border: 1px solid var(--rule); border-radius: 7px; padding: 4px 12px 10px; margin: 0; display: flex; flex-wrap: wrap; gap: 6px 22px; }
+.ioc-kinds legend { color: var(--ink2); font-size: 13px; padding: 0 4px; }
+.ioc-kinds .check { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.ioc-kinds .count { color: var(--ink3, var(--ink2)); font-variant-numeric: tabular-nums; }
+.ioc .actions { display: flex; gap: 14px; align-items: center; }
+.settings select { color: var(--ink); }
+.settings .row { display: grid; gap: 6px; }
+.settings .row[hidden] { display: none; }
+.settings .sources { border: 1px solid var(--rule); border-radius: 7px; padding: 4px 12px 10px; margin: 10px 0 0; display: grid; gap: 2px; }
+.settings .sources legend { color: var(--ink2); font-size: 13px; padding: 0 4px; }
+.settings .sources .check { margin-top: 4px; }
 button.primary { background: var(--accent); color: #04101f; border: 0; border-radius: 7px; padding: 7px 16px; font-weight: 600; }
 button.primary:hover { filter: brightness(1.1); }
 

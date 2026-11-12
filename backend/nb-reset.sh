@@ -1,14 +1,14 @@
 #!/bin/bash
 # Nightly on nb-backend: keep every file attackers created or changed in fileserver01 since the last
 # reset, then roll the container back to the "clean" snapshot. Installed as /usr/local/sbin/nb-reset.sh,
-# run by nb-reset.timer. Harvests land in /var/lib/nb-harvest (root only, never executed).
+# run by nb-reset.timer. Harvests land in /var/lib/nb-harvest (root only, never executed;
+# hotpot-retention deletes old ones).
 set -euo pipefail
 source /etc/nb-honeypot.conf
 CT=$CT_NAME
 ROOT=/var/lib/incus/storage-pools/default/containers/$CT/rootfs
 OUT=/var/lib/nb-harvest
 STAMP=$OUT/.last-reset
-KEEP_DAYS=45
 mkdir -p "$OUT"; chmod 700 "$OUT"
 exec 9>"$OUT/.lock"; flock 9          # nightly timer and nb-collect's early reset never overlap
 REASON_FILE=$OUT/.reset-reason
@@ -36,7 +36,7 @@ fi
 incus snapshot restore "$CT" clean
 incus start "$CT" 2>/dev/null || true
 touch "$STAMP"
-find "$OUT" -maxdepth 1 -name "$CT-*" -mtime +"$KEEP_DAYS" -delete
+# old harvests are deleted by hotpot-retention (SAMPLE_KEEP_DAYS)
 logger -t nb-reset "harvested $N files to $OUT/$CT-$TS, restored $CT to clean"
 # one line for the dashboard: when, why, and how many files were kept
 python3 -I -c 'import json,sys,time

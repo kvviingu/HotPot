@@ -8,10 +8,10 @@
 | Web honeypot events and its page cache | front: docker volume `honeypot_web-data` |
 | Backend events: exec, connect, file, fetch (JSONL) | backend: `/var/lib/nb-export/backend.jsonl` |
 | Quarantined samples, named `<sha256>.bin`, mode 0400 | backend: `/var/lib/nb-quarantine/files/` |
-| Nightly harvests: tarball, file list, sha256 list | backend: `/var/lib/nb-harvest/` (kept 45 days) |
-| Raw audit log (rotated, about 400 MB) | backend: `/var/log/audit/` |
+| Nightly harvests: tarball, file list, sha256 list | backend: `/var/lib/nb-harvest/` (kept `SAMPLE_KEEP_DAYS`) |
+| Raw audit log (auditd rotates it: 8 files of 50 MB) | backend: `/var/log/audit/` |
 | Decoy service events | front: docker volume `honeypot_decoy-data`, `services.jsonl` |
-| Suricata alerts and TLS fingerprints (EVE JSON) | front: `/var/lib/docker/volumes/honeypot_ids-log/_data/eve.json`, older days `eve-<date>.json` (kept 21 days) |
+| Suricata alerts and TLS fingerprints (EVE JSON) | front: `/var/lib/docker/volumes/honeypot_ids-log/_data/eve.json`, older days `eve-<date>.json` (kept `LOG_KEEP_DAYS`) |
 | Suricata rules | front: `/var/lib/docker/volumes/honeypot_ids-lib/_data/rules/suricata.rules` |
 | Dashboard's local copy of the logs, settings, reports | your machine: `dashboard/data/` (gitignored) |
 
@@ -72,6 +72,13 @@ them over SSH).
 * **IDS upkeep** (about 04:20 UTC): `hotpot-ids.timer` rotates Suricata's log and refreshes its rules
   ([detection.md](detection.md#network-ids-suricata)). Run it by hand with
   `./hotpot ssh front "sudo systemctl start hotpot-ids.service"`.
+* **Clean-up** (about 05:10 UTC, both VMs): `hotpot-retention.timer` deletes rotated logs and Cowrie's
+  recordings older than `LOG_KEEP_DAYS` (30), and samples and harvests older than `SAMPLE_KEEP_DAYS`
+  (90). If the disk is fuller than `DISK_MAX_PERCENT` (85) it then deletes the oldest data, logs first,
+  samples last, until it is below. It never touches a file a service is still writing. The dashboard's
+  copy in `dashboard/data/mirror/` keeps every line it synced, so sync at least once within
+  `LOG_KEEP_DAYS`. `./hotpot cleanup` shows disk use per kind of data, `cleanup dry-run` what would go,
+  `cleanup run` runs it now.
 * **Health:** `./hotpot status`. The dashboard's Sync button turns red when the front VM fails, and
   says "backend failed" when only the backend pull fails.
 

@@ -158,6 +158,9 @@ else
   systemctl disable --now hotpot-ids.timer >/dev/null 2>&1 || true
 fi
 
+step "Daily clean-up of old logs and samples (hotpot-retention.timer)"
+install_retention
+
 # ---- 7. start ---------------------------------------------------------------------------------------
 step "Starting containers"
 docker compose up -d --build --remove-orphans

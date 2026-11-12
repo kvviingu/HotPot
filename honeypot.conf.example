@@ -40,6 +40,17 @@ DECOY_SERVICES=redis,docker,elastic,mysql,ollama,k8s,rdp,smb
 # 1 = run it. Needs ~300-450 MB RAM; it only listens, so no firewall change.
 IDS_ENABLED=1
 
+# ---- data retention on the VMs (hotpot-retention.timer, daily) ----------------------------------------
+# Only rotated logs are deleted, never the file a service is writing to. Your dashboard keeps its own copy
+# of every line it has synced, so this frees the VMs' disks without losing history (sync at least once
+# within LOG_KEEP_DAYS). 0 = keep forever. See what it would do with: hotpot cleanup dry-run
+# rotated Cowrie, web, decoy, Suricata and backend logs, and Cowrie's session recordings
+LOG_KEEP_DAYS=30
+# quarantined samples and the nightly harvest archives
+SAMPLE_KEEP_DAYS=90
+# above this disk use the oldest logs go first, then harvests, then samples, whatever their age
+DISK_MAX_PERCENT=85
+
 # ---- backend setup proxy ------------------------------------------------------------------------------
 # extra apt mirrors the backend may use through the front VM's proxy (defaults: install/mirrors.txt),
 # e.g. mirror.hetzner.com. ./deploy.sh check tells you if one is missing.

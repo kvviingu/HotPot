@@ -81,6 +81,69 @@ AbuseIPDB (free key) and GreyNoise community (key optional), from a session's dr
 Only attacker IPs are sent, never your own or private addresses. Results are cached for 7 days in
 `dashboard/data/iprep.json`.
 
+## Indicator export
+
+The Intel tab's **Export indicators** panel downloads what the honeypot learned about attackers:
+
+| Kind | What it holds |
+|---|---|
+| IP addresses | every public source IP of a session in the period |
+| File hashes | SHA-256 of every captured sample (backend quarantine and Cowrie downloads) |
+| URLs | links attackers fetched in the real shell, downloaded in the fake one, or wrote in a command line |
+| Domains | the host names of those URLs |
+
+Choose the period, and whether to include every source or only attackers who got further than a scan
+(logged in, read data, dropped or fetched files, or tripped a lure). Formats:
+
+* **STIX 2.1 bundle** for OpenCTI and other STIX/TAXII tools: one `indicator` per value with a pattern,
+  a description, ATT&CK references and the chosen TLP marking. Ids are derived from the value, so
+  importing a newer export updates the same indicators instead of adding copies.
+* **MISP event** (JSON, *Add event from JSON*): one attribute per value with first and last seen,
+  `to_ids` set except for domains, distribution "your organisation only", and a `tlp:` tag.
+* **CSV** with first and last seen, session kinds, classes, ATT&CK techniques, campaigns, related IPs,
+  country and ASN. Cells that a spreadsheet would read as a formula are prefixed with `'`.
+* **Plain list**, one value of one kind per line, for firewall and DNS blocklists.
+
+Your own IPs (Settings), the front VM's address, private addresses, and this install's own host and
+company names never appear. Values are checked before they are written (IPs parse as public
+addresses, hashes are 64 hex characters, URLs have a public host), and attacker text is only written
+JSON- or CSV-escaped. Read [operations.md](operations.md#handling-samples) before you share samples
+themselves; the export holds only their hashes.
+
+## Log forwarding
+
+Settings, **Forward logs**, sends every new event to a log platform after each sync:
+
+| Send to | Address | Token |
+|---|---|---|
+| Syslog (RFC 5424) | `host:port`; transport TCP, TLS or UDP | none |
+| Elasticsearch or OpenSearch | cluster URL; events go to its `_bulk` API as `create` actions into the index or data stream you name | API key (optional) |
+| Splunk | HEC URL, e.g. `https://splunk:8088` | HEC token |
+| Any HTTP endpoint | full URL; NDJSON in a POST | bearer token (optional) |
+
+Every event is one JSON document:
+
+```json
+{"@timestamp": "2026-11-12T22:49:34.123Z", "sensor": "hotpot", "source": "cowrie",
+ "cowrie": {"eventid": "cowrie.command.input", "input": "uname -a", "src_ip": "...", "...": "..."}}
+```
+
+`source` is `cowrie`, `web`, `decoys`, `ids` or `backend`, and the original event sits under a key of
+the same name, so fields from different sources never clash in one index. Syslog messages use
+facility local0, severity info, app name `hotpot` and the source as MSGID; TCP and TLS use octet
+counting (RFC 6587), and UDP drops events over 60 kB.
+
+* **What is sent:** turning forwarding on (or pointing it somewhere new) starts from that moment; the
+  history is not sent. After that every line goes out once, also across log rotation on the VMs. When
+  the destination can't be reached the lines wait and go out on a later sync; Settings shows how much
+  is waiting and the last error. Events from your own IPs are not sent.
+* **Only while the dashboard runs.** It catches up when you start it again, as long as that is within
+  `LOG_KEEP_DAYS` of the VMs' clean-up.
+* **TLS** is always verified. For a private CA or a self-signed certificate, give the path of its PEM
+  file under "CA certificate". The token is stored in `dashboard/data/settings.json` like the other
+  keys and is never shown again in full.
+* **"Save and send a test event"** sends one event with `source: "hotpot"`.
+
 ## Replay
 
 SSH and Telnet sessions play back from Cowrie's ttylogs, fetched on demand and cached in

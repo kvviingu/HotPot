@@ -161,6 +161,7 @@ function applyView() {
   if (state.view === "samples") loadSamples();
   if (state.view === "report") loadReport();
   if (state.view === "stats") { if (ST.data) renderStats(); loadStats(); }
+  if (state.view === "intel") iocCounts();
   if (!data) return;
   if (state.view === "overview") renderActivity();
   if (state.view === "intel") renderIntel();
@@ -1303,7 +1304,110 @@ async function loadSettings() {
   $("s-iprep").checked = st.auto_iprep;
   $("s-sync").value = st.sync_seconds;
   $("s-own").value = st.own_ips.join(", ");
+  const fw = st.forward;
+  $("s-fw-on").checked = fw.enabled;
+  $("s-fw-type").value = fw.type;
+  $("s-fw-addr").value = fw.address;
+  $("s-fw-proto").value = fw.proto;
+  $("s-fw-index").value = fw.index;
+  $("s-fw-sensor").value = fw.sensor;
+  $("s-fw-ca").value = fw.ca_file;
+  for (const c of document.querySelectorAll("input[name=fw-src]")) c.checked = fw.sources.includes(c.value);
+  $("s-fw-token").value = "";
+  $("s-fw-token").placeholder = fw.token.set ? `Saved (${fw.token.hint}). Type to replace it.` : "Not set";
+  const ts = $("s-fw-token-state");
+  clear(ts);
+  if (fw.token.set) {
+    const b = el("button", "link", "Remove saved token");
+    b.type = "button";
+    b.addEventListener("click", () => saveSettings({ forward: { token: "" } }));
+    ts.append(document.createTextNode("Token saved. "), b);
+  }
+  fwTypeChanged();
+  fwStatus(st.forward_status, fw.enabled);
 }
+const FW_HELP = {
+  syslog: ["host:port, e.g. siem.example.lan:6514", null, null],
+  elasticsearch: ["Cluster URL, e.g. https://es.example.lan:9200 (the bulk API is added)", "API key (optional; base64 form)", "Index or data stream"],
+  splunk: ["HEC URL, e.g. https://splunk.example.lan:8088", "HEC token", "Index (optional; empty uses the token's default)"],
+  http: ["Full URL that accepts POSTed NDJSON", "Bearer token (optional)", null],
+};
+function fwTypeChanged() {
+  const [addr, tok, idx] = FW_HELP[$("s-fw-type").value];
+  $("s-fw-addr-help").textContent = addr;
+  $("s-fw-proto-row").hidden = $("s-fw-type").value !== "syslog";
+  $("s-fw-token-row").hidden = !tok;
+  $("s-fw-index-row").hidden = !idx;
+  if (tok) $("s-fw-token-label").textContent = tok;
+  if (idx) $("s-fw-index-label").textContent = idx;
+}
+function fwStatus(s, on) {
+  const parts = [];
+  if (!on) parts.push("Off.");
+  if (s && s.last_ok) parts.push(`Last sent ${new Date(s.last_ok).toLocaleTimeString()}.`);
+  if (s && s.sent) parts.push(`${fmtN(s.sent)} events since the dashboard started` + (s.rejected ? `, ${fmtN(s.rejected)} rejected.` : "."));
+  if (s && s.pending > 0) parts.push(`${fmtN(Math.ceil(s.pending / 1024))} kB waiting.`);
+  if (s && s.error) parts.push("Error: " + s.error);
+  $("s-fw-state").textContent = parts.join(" ");
+}
+function fwBody() {
+  const f = { enabled: $("s-fw-on").checked, type: $("s-fw-type").value, address: $("s-fw-addr").value.trim(),
+    proto: $("s-fw-proto").value, index: $("s-fw-index").value.trim(), sensor: $("s-fw-sensor").value.trim(),
+    ca_file: $("s-fw-ca").value.trim(), sources: [...document.querySelectorAll("input[name=fw-src]:checked")].map((c) => c.value) };
+  if ($("s-fw-token").value.trim()) f.token = $("s-fw-token").value.trim();
+  return f;
+}
+$("s-fw-type").addEventListener("change", fwTypeChanged);
+
+// ---- indicator export (Intel tab) --------------------------------------------------------------
+function iocQuery(format) {
+  const kinds = [...document.querySelectorAll("input[name=ioc-kind]:checked")].map((c) => c.value);
+  return "/api/ioc?" + new URLSearchParams({ format, range: $("ioc-range").value, scope: $("ioc-scope").value,
+    tlp: $("ioc-tlp").value, kinds: kinds.join(",") });
+}
+async function iocCounts() {
+  try {
+    const n = await (await fetch(iocQuery("count"))).json();
+    for (const s of document.querySelectorAll("#ioc-form [data-n]")) s.textContent = "(" + fmtN(n[s.dataset.n]) + ")";
+  } catch (e) { /* counts are only a hint */ }
+}
+function iocFormatChanged() {
+  const txt = $("ioc-format").value === "txt";
+  $("ioc-tlp-label").hidden = !["stix", "misp"].includes($("ioc-format").value);
+  // a plain list holds one kind: turn the boxes into a choice of one
+  for (const c of document.querySelectorAll("input[name=ioc-kind]")) c.type = txt ? "radio" : "checkbox";
+  if (txt && !document.querySelector("input[name=ioc-kind]:checked")) document.querySelector("input[name=ioc-kind]").checked = true;
+}
+$("ioc-format").addEventListener("change", iocFormatChanged);
+for (const id of ["ioc-range", "ioc-scope"]) $(id).addEventListener("change", iocCounts);
+$("ioc-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!document.querySelector("input[name=ioc-kind]:checked")) { $("ioc-msg").textContent = "Choose at least one kind."; return; }
+  const a = document.createElement("a");
+  a.href = iocQuery($("ioc-format").value);
+  a.download = "";
+  document.body.append(a);
+  a.click();
+  a.remove();
+  $("ioc-msg").textContent = "Downloading…";
+  setTimeout(() => { $("ioc-msg").textContent = ""; }, 4000);
+});
+$("s-fw-test").addEventListener("click", async () => {
+  const st = $("s-fw-state");
+  $("s-fw-test").disabled = true;
+  try {
+    st.textContent = "Saving…";
+    await postJSON("/api/settings", { forward: fwBody() });
+    st.textContent = "Sending a test event…";
+    await postJSON("/api/forward-test", {});
+    await loadSettings();
+    st.textContent = "Test event sent. Look for source \"hotpot\" at the destination.";
+  } catch (e) {
+    st.textContent = "Test failed: " + e.message;
+  } finally {
+    $("s-fw-test").disabled = false;
+  }
+});
 async function saveSettings(body) {
   const msg = $("settings-msg");
   msg.textContent = "Saving…";
@@ -1316,7 +1420,7 @@ async function saveSettings(body) {
 $("settings-form").addEventListener("submit", (ev) => {
   ev.preventDefault();
   const body = { auto_lookup: $("s-auto").checked, auto_iprep: $("s-iprep").checked, sync_seconds: Number($("s-sync").value) || 60,
-    own_ips: $("s-own").value.split(",").map((x) => x.trim()).filter(Boolean) };
+    own_ips: $("s-own").value.split(",").map((x) => x.trim()).filter(Boolean), forward: fwBody() };
   if ($("s-vt").value.trim()) body.virustotal_api_key = $("s-vt").value.trim();
   if ($("s-mb").value.trim()) body.malwarebazaar_auth_key = $("s-mb").value.trim();
   if ($("s-ab").value.trim()) body.abuseipdb_api_key = $("s-ab").value.trim();

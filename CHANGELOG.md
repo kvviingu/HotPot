@@ -3,6 +3,17 @@
 All notable changes. Versions follow [semantic versioning](https://semver.org/); `hotpot version`
 prints the one you have.
 
+## Unreleased
+
+* **Indicator export** on the Intel tab: attacker IPs, sample hashes, URLs and domains as a STIX 2.1
+  bundle, a MISP event, CSV or a plain blocklist, with a TLP marking.
+* **Log forwarding** from the dashboard to syslog (UDP, TCP, TLS), Elasticsearch/OpenSearch, Splunk HEC
+  or any NDJSON endpoint, set up in Settings.
+* **Clean-up on the VMs:** a daily `hotpot-retention` timer on both VMs with `LOG_KEEP_DAYS`,
+  `SAMPLE_KEEP_DAYS` and `DISK_MAX_PERCENT`, and a `hotpot cleanup` command. The web honeypot now
+  rotates `web.jsonl` at 64 MB, and the backend's event log gets a new name at each rotation so the
+  dashboard's copy of an older one is never overwritten.
+
 ## 1.0.0
 
 First public release.

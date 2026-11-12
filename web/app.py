@@ -78,6 +78,7 @@ llm_minute: deque = deque()
 llm_inflight: set = set()
 llm_sem = asyncio.Semaphore(2)
 log_file = open(LOG_PATH, "a", buffering=1, encoding="utf-8")
+LOG_ROTATE = 64 * 1024 * 1024  # then web.jsonl.<time>; hotpot-retention deletes old ones
 
 
 def now_iso() -> str:
@@ -85,7 +86,12 @@ def now_iso() -> str:
 
 
 def log(event: dict) -> None:
+    global log_file
     log_file.write(json.dumps(event, ensure_ascii=False) + "\n")
+    if log_file.tell() > LOG_ROTATE:
+        log_file.close()
+        os.replace(LOG_PATH, LOG_PATH + "." + datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S"))
+        log_file = open(LOG_PATH, "a", buffering=1, encoding="utf-8")
 
 
 def token_for(ip: str) -> str:

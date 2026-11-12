@@ -1,12 +1,11 @@
 #!/bin/bash
-# Daily IDS upkeep on the front VM (hotpot-ids.timer): rotate eve.json, prune old logs,
-# refresh the ET Open rules and restart Suricata on them. Also run once by install/front.sh.
+# Daily IDS upkeep on the front VM (hotpot-ids.timer): rotate eve.json (hotpot-retention deletes old
+# ones), refresh the ET Open rules and restart Suricata on them. Also run once by install/front.sh.
 #   maintain.sh            all of it
 #   maintain.sh rules      only fetch rules (used before the first start)
 set -euo pipefail
 cd /opt/honeypot
 LOG=/var/lib/docker/volumes/honeypot_ids-log/_data
-KEEP_DAYS=21
 
 update_rules() {
   # runs in the ids image, on the host network (the rules come from rules.emergingthreats.net)
@@ -21,7 +20,6 @@ if [ -s "$LOG/eve.json" ]; then
   mv "$LOG/eve.json" "$LOG/eve-$(date -u +%Y%m%d%H%M).json"
   docker kill -s HUP ids >/dev/null 2>&1 || true
 fi
-find "$LOG" -maxdepth 1 -name 'eve-*.json' -mtime +"$KEEP_DAYS" -delete
 
 if update_rules; then
   docker restart ids >/dev/null

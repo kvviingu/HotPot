@@ -41,7 +41,9 @@ import urllib.error
 import urllib.request
 from urllib.parse import parse_qs, urlencode, urlparse
 
+import forward
 import geo
+import ioc
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import persona  # noqa: E402  (repo root: this install's identity)
@@ -61,6 +63,7 @@ STATIC = os.path.join(BASE, "static")
 CONFIG_PATH = os.path.join(BASE, "config.json")
 STATE_PATH = os.path.join(DATA, "sync_state.json")
 SETTINGS_PATH = os.path.join(DATA, "settings.json")
+FORWARD_STATE = os.path.join(DATA, "forward_state.json")
 LOOKUPS_PATH = os.path.join(DATA, "lookups.json")
 
 DEFAULT_CONFIG = {
@@ -91,7 +94,7 @@ if sys.argv[2:] == ["backend"]:
     sources = {"backend": sorted(glob.glob("/var/lib/nb-export/backend.jsonl*"))}
 else:
     sources = {
-        "web": ["/var/lib/docker/volumes/honeypot_web-data/_data/web.jsonl"],
+        "web": sorted(glob.glob("/var/lib/docker/volumes/honeypot_web-data/_data/web.jsonl*")),
         "cowrie": sorted(glob.glob("/var/lib/docker/volumes/honeypot_cowrie-var/_data/log/cowrie/cowrie.json*")),
         "decoys": sorted(glob.glob("/var/lib/docker/volumes/honeypot_decoy-data/_data/services.jsonl*")),
         "ids": sorted(glob.glob("/var/lib/docker/volumes/honeypot_ids-log/_data/eve*.json")),
@@ -284,6 +287,8 @@ def settings_view() -> dict:
     out["auto_iprep"] = bool(SETTINGS.get("auto_iprep", False))
     out["sync_seconds"] = int(CFG.get("sync_seconds", 60))
     out["own_ips"] = list(CFG.get("own_ips", []))
+    out["forward"] = forward.view(SETTINGS.get("forward") or {})
+    out["forward_status"] = FORWARDER.status
     return out
 
 
@@ -306,6 +311,11 @@ def save_settings(req: dict) -> dict:
         for k in ("auto_lookup", "auto_iprep"):
             if k in req:
                 SETTINGS[k] = bool(req[k])
+        if isinstance(req.get("forward"), dict):
+            old = SETTINGS.get("forward") or {}
+            new = SETTINGS["forward"] = forward.clean(req["forward"], old)
+            if new["enabled"] and (not old.get("enabled") or any(old.get(k) != new[k] for k in ("type", "address"))):
+                FORWARDER.restart()  # switched on or pointed elsewhere: new events only, not the backlog
         if "sync_seconds" in req:
             CFG["sync_seconds"] = max(15, min(3600, int(req["sync_seconds"])))
         if "own_ips" in req:
@@ -947,6 +957,7 @@ def svc(name, unit):
 if role == "front":
     svc("Docker", "docker")
     svc("Admin SSH", "ssh")
+    svc("Clean-up timer", "hotpot-retention.timer")
     for l in sh("docker", "ps", "-a", "--format", "{{json .}}").splitlines():
         try: c = json.loads(l)
         except ValueError: continue
@@ -959,11 +970,12 @@ if role == "front":
                    "ids_log": mtime(v + "/honeypot_ids-log/_data/eve.json"),
                    "ids_rules": mtime(v + "/honeypot_ids-lib/_data/rules/suricata.rules"),
                    "log_bytes": size(glob.glob(v + "/honeypot_cowrie-var/_data/log/cowrie/cowrie.json*")
-                                     + [v + "/honeypot_web-data/_data/web.jsonl"]),
+                                     + glob.glob(v + "/honeypot_web-data/_data/web.jsonl*")),
                    "cowrie_samples": len(glob.glob(v + "/honeypot_cowrie-var/_data/lib/cowrie/downloads/*"))}
 else:
     for name, unit in (("Incus", "incus"), ("Audit log", "auditd"), ("Collector timer", "nb-collect.timer"),
-                       ("Nightly reset timer", "nb-reset.timer"), ("Admin SSH", "ssh")):
+                       ("Nightly reset timer", "nb-reset.timer"), ("Clean-up timer", "hotpot-retention.timer"),
+                       ("Admin SSH", "ssh")):
         svc(name, unit)
     ct = {}
     try:
@@ -1104,6 +1116,7 @@ def sync_once() -> None:
         STATUS.update(last_ok=int(time.time() * 1000), error=None, bytes=got)
         if got or not MODEL["built"]:
             rebuild()
+        run_forward()
     except Exception as e:  # shown in the UI; the sync loop keeps going
         STATUS["error"] = f"{type(e).__name__}: {e}"[:400]
         if not MODEL["built"]:
@@ -1112,6 +1125,22 @@ def sync_once() -> None:
         STATUS["last_sync"] = int(time.time() * 1000)
         STATUS["running"] = False
         sync_lock.release()
+
+
+FORWARDER = forward.Forwarder(FORWARD_STATE)
+
+
+def run_forward() -> None:
+    """Send what the last syncs brought to the SIEM, if forwarding is on (Settings). Its errors only
+    show in Settings and Status; the sync itself has already succeeded."""
+    fc = SETTINGS.get("forward") or {}
+    STATUS["forward"] = FORWARDER.status if fc.get("enabled") else None
+    if not fc.get("enabled"):
+        return
+    try:
+        FORWARDER.run(fc, MIRROR, own_ips=CFG.get("own_ips", []), deadline=30)
+    except Exception as e:  # never let a destination problem stop the sync loop
+        FORWARDER.status["error"] = f"{type(e).__name__}: {e}"[:300]
 
 
 def sync_loop() -> None:
@@ -2672,6 +2701,43 @@ def public(x: dict) -> dict:
 
 
 SEARCH_CAP = 3000
+IOC_TYPES = {"stix": ("application/json", "json"), "misp": ("application/json", "json"),
+             "csv": ("text/csv; charset=utf-8", "csv"), "txt": ("text/plain; charset=utf-8", "txt")}
+
+
+def ioc_export(q: dict):
+    """Indicators for the Intel tab's export: (body, content type, file name), or counts for format=count."""
+    arg = lambda k, d="": q.get(k, [d])[0]
+    rng = arg("range", "7d") if arg("range", "7d") in RANGES else "7d"
+    fmt = arg("format", "count")
+    kinds = [k for k in arg("kinds", ",".join(ioc.KINDS)).split(",") if k in ioc.KINDS] or list(ioc.KINDS)
+    tlp = arg("tlp", "clear") if arg("tlp", "clear") in ioc.TLP_STIX else "clear"
+    with lock:
+        sessions = MODEL["sessions"]
+    span = RANGES[rng]
+    now = int(time.time() * 1000)
+    own = own_set()
+    own.ips.add(CFG.get("ssh_host", ""))
+    names = [n.lower() for n in (IDENT.get("brand"), IDENT.get("host")) if n and len(n) >= 4]
+    data = ioc.collect(sessions, samples_view()["samples"], own=own, since_ms=now - span if span else 0,
+                       only_engaged=arg("scope") == "engaged", local_names=names, geo_of=geo.lookup)
+    if fmt == "count":
+        return {k: len(data[k]) for k in ioc.KINDS}
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    period = {"24h": "last 24 hours", "7d": "last 7 days", "30d": "last 30 days", "all": "all time"}[rng]
+    if fmt == "stix":
+        body = ioc.to_stix(data, tlp=tlp, kinds=kinds)
+    elif fmt == "misp":
+        body = ioc.to_misp(data, tlp=tlp, period=period, kinds=kinds)
+    elif fmt == "csv":
+        body = ioc.to_csv(data, kinds=kinds)
+    elif fmt == "txt":
+        body = ioc.to_txt(data, kinds[0])
+    else:
+        raise ValueError("unknown format")
+    ctype, ext = IOC_TYPES[fmt]
+    part = kinds[0] if fmt == "txt" else ("all" if len(kinds) == len(ioc.KINDS) else "-".join(kinds))
+    return body.encode("utf-8"), ctype, f"hotpot-iocs-{part}-{rng}-{stamp}.{ext}"
 
 
 def search_sessions(rng: str, include_own: bool, q: str, cls: str, kind: str, sort: str) -> dict:
@@ -3612,6 +3678,23 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(vm_status(q.get("force", ["0"])[0] == "1"))
         if u.path == "/api/settings":
             return self.send_json(settings_view())
+        if u.path == "/api/ioc":
+            try:
+                r = ioc_export(q)
+            except ValueError as e:
+                return self.send_json({"error": str(e)[:200]}, 400)
+            if isinstance(r, dict):
+                return self.send_json(r)
+            body, ctype, name = r
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if u.path == "/api/samples":
             return self.send_json(samples_view())
         if u.path == "/api/report":
@@ -3651,7 +3734,7 @@ class Handler(BaseHTTPRequestHandler):
                 or not hmac.compare_digest(self.headers.get("X-HP-Token", ""), CSRF):
             return self.send(403, b"forbidden", "text/plain")
         path = urlparse(self.path).path
-        if path in ("/api/settings", "/api/lookup", "/api/iprep", "/api/submit", "/api/scan"):
+        if path in ("/api/settings", "/api/lookup", "/api/iprep", "/api/submit", "/api/scan", "/api/forward-test"):
             try:
                 n = int(self.headers.get("Content-Length") or 0)
                 req = json.loads(self.rfile.read(min(n, 4000)) or b"{}")
@@ -3659,6 +3742,8 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("bad request")
                 if path == "/api/settings":
                     return self.send_json(save_settings(req))
+                if path == "/api/forward-test":
+                    return self.send_json(forward.test_event(SETTINGS.get("forward") or {}))
                 if path == "/api/iprep":
                     return self.send_json(lookup_ip(str(req.get("ip", ""))[:64]))
                 if path == "/api/submit":

@@ -49,7 +49,7 @@ tar czf /root/persona.tar.gz -C "$SRC/cowrie/honeyfs" .
 bash "$SRC/backend/setup_container.sh"
 rm -f /root/persona.tar.gz
 
-step "Collector (every minute) and nightly reset"
+step "Collector (every minute), nightly reset, daily clean-up"
 install -m 750 "$SRC/backend/nb-collect.py" /usr/local/sbin/nb-collect.py
 install -m 750 "$SRC/backend/nb-reset.sh" /usr/local/sbin/nb-reset.sh
 install -m 644 "$SRC/backend/nb-collect.service" "$SRC/backend/nb-collect.timer" \
@@ -70,6 +70,7 @@ json.dump(st, open(p, "w"))
 EOF
 systemctl daemon-reload
 systemctl enable --now nb-collect.timer nb-reset.timer
+install_retention
 
 incus list "$CT_NAME" -f compact -c ns4
 cat <<EOF

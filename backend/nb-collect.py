@@ -96,7 +96,9 @@ class Out:
     def __init__(self):
         os.makedirs(EXPORT_DIR, mode=0o700, exist_ok=True)
         if os.path.exists(EXPORT) and os.path.getsize(EXPORT) > EXPORT_ROTATE:
-            os.replace(EXPORT, EXPORT + ".1")
+            # a new name each time, so the dashboard's copy of an older rotation is never overwritten;
+            # hotpot-retention deletes them after LOG_KEEP_DAYS
+            os.replace(EXPORT, EXPORT + "." + time.strftime("%Y%m%d%H%M%S", time.gmtime()))
         self.f = open(EXPORT, "a")
 
     def write(self, obj):

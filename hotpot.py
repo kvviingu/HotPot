@@ -166,6 +166,10 @@ def validate(conf):
     p = conf.get("ADMIN_SSH_PORT", "")
     if p and (not p.isdigit() or not 1024 <= int(p) <= 65535 or int(p) in DECOYS.values()):
         errs.append(f"ADMIN_SSH_PORT={p} must be a free port between 1024 and 65535")
+    for k, lo, hi in (("LOG_KEEP_DAYS", 0, 3650), ("SAMPLE_KEEP_DAYS", 0, 3650), ("DISK_MAX_PERCENT", 50, 98)):
+        v = conf.get(k, "")
+        if v and (not v.isdigit() or not lo <= int(v) <= hi):
+            errs.append(f"{k}={v} must be a whole number from {lo} to {hi}")
     for k, v in conf.items():
         if not SAFE_VALUE.match(v) and k not in ("LLM_MODELS",):
             errs.append(f"{k} contains characters that are not safe in a shell")
@@ -391,6 +395,7 @@ def cmd_persona(conf, vms):
               "trap 'rm -rf ~/.honeypot-src' EXIT; S=~/.honeypot-src; "
               "sudo install -m 750 $S/backend/nb-collect.py /usr/local/sbin/nb-collect.py; "
               "sudo install -m 750 $S/backend/nb-reset.sh /usr/local/sbin/nb-reset.sh; "
+              "sudo bash -c 'source $0/install/lib.sh; install_retention' $S; "
               "sudo tar czf /root/persona.tar.gz -C $S/cowrie/honeyfs .; "
               "sudo bash $S/backend/refresh_persona.sh; sudo rm -f /root/persona.tar.gz")
     if vms.run("backend", remote, data=vms.bundle({})).returncode != 0:
@@ -537,6 +542,19 @@ def cmd_status(conf, vms):
                 "for t in nb-collect.timer nb-reset.timer auditd; do printf '  %s: %s\\n' $t $(systemctl is-active $t); "
                 "done; printf '  samples in quarantine: %s\\n' "
                 "$(sudo find /var/lib/nb-quarantine/files -name '*.bin' | wc -l)")
+
+
+def cmd_cleanup(conf, vms, mode):
+    """Run the daily clean-up now (or only report / dry-run it) on both VMs."""
+    flag = {"run": "", "report": " --report", "dry-run": " --dry-run"}[mode]
+    rc = 0
+    for vm in ["front"] + (["backend"] if backend_on(conf) else []):
+        say(f"{vm} VM")
+        r = vms.run(vm, "if [ -x /usr/local/sbin/hotpot-retention ]; then "
+                        f"sudo /usr/local/sbin/hotpot-retention{flag} 2>&1 | sed 's/^/  /'; "
+                        "else echo '  clean-up is not installed yet: run hotpot deploy'; exit 3; fi")
+        rc = rc or r.returncode
+    return rc
 
 
 def write_dashboard_config(conf):
@@ -978,6 +996,9 @@ def main(argv=None):
     i.add_argument("action", nargs="?", default="show", choices=["show", "new", "keep"])
     sub.add_parser("ports", help="test the public ports from this computer")
     sub.add_parser("status", help="service health on both VMs")
+    c = sub.add_parser("cleanup", help="delete old logs and samples on the VMs now (runs daily anyway)")
+    c.add_argument("mode", nargs="?", default="report", choices=["report", "dry-run", "run"],
+                   help="report: disk use per kind of data (default); dry-run: list what would go; run: delete")
     b = sub.add_parser("dashboard", help="start the local dashboard and open it")
     b.add_argument("--no-browser", action="store_true", help="do not open the browser")
     b.add_argument("--config-only", action="store_true", help="only write dashboard/config.json")
@@ -1017,6 +1038,8 @@ def main(argv=None):
             return cmd_persona(conf, vms)
         if a.cmd == "status":
             return cmd_status(conf, vms)
+        if a.cmd == "cleanup":
+            return cmd_cleanup(conf, vms, a.mode)
         if a.cmd == "ssh":
             if a.vm == "backend" and not backend_on(conf):
                 die("there is no backend VM (BACKEND_ENABLED=0)")

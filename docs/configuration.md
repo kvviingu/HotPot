@@ -37,6 +37,9 @@ config.
 | `DECOYS_ENABLED` | `1` | run the decoy services container |
 | `DECOY_SERVICES` | `redis,docker,elastic,mysql,ollama,k8s,rdp,smb` | which decoys to run |
 | `IDS_ENABLED` | `1` | run Suricata on the front VM (needs about 300-450 MB RAM; no firewall change) |
+| `LOG_KEEP_DAYS` | `30` | days the VMs keep rotated logs (Cowrie, web, decoys, Suricata, backend) and Cowrie's session recordings; `0` = forever |
+| `SAMPLE_KEEP_DAYS` | `90` | days the VMs keep quarantined samples and nightly harvests; `0` = forever |
+| `DISK_MAX_PERCENT` | `85` | above this disk use the daily clean-up deletes the oldest logs, then harvests, then samples, until it is below (50-98) |
 | `EXTRA_APT_MIRRORS` | empty | extra apt mirror host names the backend may reach through the front VM's proxy (comma list; a leading dot allows subdomains). The defaults are in `install/mirrors.txt`. |
 | `SSH_USER` | `ubuntu` | admin user on both VMs |
 | `SSH_KEY` | `~/.ssh/honeypot_admin` | your admin key (same key for both VMs) |
@@ -70,7 +73,7 @@ and run `./hotpot deploy front`:
 |---|---|
 | `ids/suricata.yaml` | memory caps, `HTTP_PORTS`, which EVE event types are logged |
 | `ids/disable.conf` | ET Open rule groups left out (one `group:<file>` per line) |
-| `ids/maintain.sh` | log retention (`KEEP_DAYS`, default 21) |
+| `LOG_KEEP_DAYS` in `honeypot.conf` | how long old `eve-*.json` files are kept (the daily clean-up deletes them) |
 | `docker-compose.yml`, service `ids` | the capture filter and the container's memory cap |
 
 The installer picks the interface that holds `FRONT_PRIVATE_IP` and writes it to `.env` as
@@ -98,3 +101,4 @@ Settings tab (stored in `dashboard/data/settings.json`):
 | AbuseIPDB API key, GreyNoise API key (optional) | IP reputation |
 | Check attacker IPs automatically | one lookup a minute, most interesting sessions first |
 | Pull logs every (seconds), My own IPs | same as `sync_seconds` and `own_ips` |
+| Forward logs | where new events go after each sync: type, address, token, index, sensor name, CA file, sources ([dashboard.md](dashboard.md#log-forwarding)) |
