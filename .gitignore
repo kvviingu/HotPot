@@ -1,0 +1,23 @@
+# --- your deployment: real addresses, keys and secrets ---------------------------------------------
+honeypot.conf
+secrets/*
+!secrets/*.example
+*.env
+!*.env.example
+backend.env
+openrouter.env
+
+# --- collected attacker data (IPs, credentials, commands) and local dashboard settings ----------------
+dashboard/data/
+dashboard/config.json
+
+# --- build output ----------------------------------------------------------------------------------------
+cowrie/fs.pickle
+egress/squid.conf
+__pycache__/
+*.pyc
+
+# the persona's bait files (fake .env etc.) are part of the repo
+!cowrie/honeyfs/**
+# this install's identity (company, host name, canary values, tripwire credentials)
+persona.json

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Launcher for hotpot.py on Linux, macOS and Git Bash: uses the first Python 3.10+ it finds.
+dir=$(cd "$(dirname "$0")" && pwd)
+for py in python3 python py; do
+  if command -v "$py" >/dev/null 2>&1 && "$py" -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null; then
+    exec "$py" "$dir/hotpot.py" "$@"
+  fi
+done
+echo "hotpot needs Python 3.10 or newer: https://www.python.org/downloads/" >&2
+exit 1

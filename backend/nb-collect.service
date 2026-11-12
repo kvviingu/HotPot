@@ -1,0 +1,10 @@
+[Unit]
+Description=Collect fileserver01 audit events, quarantine new files, fetch URLs attackers tried
+After=incus.service auditd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /usr/local/sbin/nb-collect.py
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=50

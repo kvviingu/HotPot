@@ -1,0 +1,7 @@
+[Unit]
+Description=Harvest changed files from fileserver01 and restore the clean snapshot
+After=incus.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/nb-reset.sh

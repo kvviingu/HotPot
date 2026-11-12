@@ -1,0 +1,2 @@
+# Nightly database dump for the intranet (k.nowak asked for 30 days retention)
+0 2 * * * root /usr/local/bin/nb-backup.sh >> /var/log/nb-backup.log 2>&1

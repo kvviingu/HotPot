@@ -1,0 +1,53 @@
+# honeypot.conf - the one settings file for a deployment.
+# Copy to honeypot.conf (gitignored) and fill in. deploy.sh reads it on the operator's machine and
+# copies it to the VMs, where the installers turn it into docker compose's .env and the backend config.
+# Plain KEY=value lines only (it is read by bash, docker compose and python). No spaces around "=".
+
+# ---- front VM: public, runs Cowrie (SSH 22 / Telnet 23), the web honeypot (80/443), and Squid -------
+FRONT_PUBLIC_IP=203.0.113.10
+FRONT_PRIVATE_IP=10.0.0.10
+# your own admin SSH moves here, because Cowrie takes port 22
+ADMIN_SSH_PORT=22222
+
+# ---- backend VM: private, no internet, runs the real Ubuntu container attackers land in ---------------
+# 0 = no backend: Cowrie runs its built-in emulated shell instead (single VM setup)
+BACKEND_ENABLED=1
+BACKEND_IP=10.0.1.10
+BACKEND_SSH_PORT=2222
+BACKEND_TELNET_PORT=2323
+# Incus container and its private bridge (only reachable from the backend host)
+CT_NAME=fileserver01
+CT_BRIDGE_CIDR=10.200.0.1/24
+CT_IP=10.200.0.10
+CT_MEMORY=560MiB
+CT_DISK_POOL_SIZE=18GiB
+
+# ---- web honeypot: LLM fallback for unknown paths (OpenRouter, free models) ----------------------------
+# the API key itself goes in secrets/openrouter.env (OPENROUTER_API_KEY=...), never here
+LLM_ENABLED=1
+LLM_MODELS=cohere/north-mini-code:free,google/gemma-4-31b-it:free,recursive/flint-v1.0:free
+LLM_DAILY_CAP=300
+LLM_PER_MINUTE=10
+
+# ---- decoy services (decoys/): fake Redis, Docker API, Elasticsearch, MySQL, Ollama, K8s, RDP, SMB -----
+# 1 = run them. Each needs its port open to the internet in the cloud firewall (docs/cloud-setup.md).
+DECOYS_ENABLED=1
+# which ones to run, out of redis (6379), docker (2375), elastic (9200), mysql (3306), ollama (11434),
+# k8s (6443), rdp (3389), smb (445)
+DECOY_SERVICES=redis,docker,elastic,mysql,ollama,k8s,rdp,smb
+
+# ---- network IDS (ids/): Suricata on the front VM, alerts and TLS fingerprints ------------------------
+# 1 = run it. Needs ~300-450 MB RAM; it only listens, so no firewall change.
+IDS_ENABLED=1
+
+# ---- backend setup proxy ------------------------------------------------------------------------------
+# extra apt mirrors the backend may use through the front VM's proxy (defaults: install/mirrors.txt),
+# e.g. mirror.hetzner.com. ./deploy.sh check tells you if one is missing.
+EXTRA_APT_MIRRORS=
+
+# ---- operator machine: how deploy.sh and the dashboard reach the VMs ----------------------------------
+SSH_USER=ubuntu
+SSH_KEY=~/.ssh/honeypot_admin
+KNOWN_HOSTS=~/.ssh/known_hosts_honeypot
+# your own public IPs, hidden in the dashboard by default (comma separated)
+OPERATOR_IPS=

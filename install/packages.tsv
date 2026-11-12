@@ -1,0 +1,20 @@
+# Logical package name -> package on each distro family. Read by pkg_install() in install/os.sh.
+# Columns are separated by TABs. "-" means "nothing to install on this family".
+# The rhel column is not used yet (Red Hat family support is planned, not done).
+#logical	debian	rhel
+ca-certs	ca-certificates	ca-certificates
+curl	curl	curl
+gnupg	gnupg	gnupg2
+openssl	openssl	openssl
+iproute	iproute2	iproute
+python3	python3	python3
+file	file	file
+zip	zip	zip
+yara	yara	yara
+iptables	iptables	iptables-nft
+iptables-save	iptables-persistent	iptables-services
+auditd	auditd	audit
+btrfs	btrfs-progs	btrfs-progs
+docker	docker.io	-
+docker-compose	docker-compose-v2	-
+incus	incus	incus

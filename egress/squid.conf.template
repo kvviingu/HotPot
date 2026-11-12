@@ -1,0 +1,25 @@
+# Rendered by install/front.sh from honeypot.conf (${BACKEND_IP}); do not edit egress/squid.conf directly.
+# Proxy for the private backend VM host: package/image servers for setup, plus the out-of-band sample
+# fetcher (nb-collect.py), which downloads URLs attackers tried to fetch.
+# The honeypot container itself cannot reach this proxy (backend FORWARD rules drop its traffic).
+http_port 3128
+acl backend_host src ${BACKEND_IP}/32
+# filled in by install/front.sh from install/mirrors.txt and EXTRA_APT_MIRRORS
+acl setup_sites dstdomain ${SETUP_SITES}
+# never let an attacker-chosen URL reach our own networks or the cloud metadata service
+acl no_dst dst 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12
+acl no_dst dst 192.168.0.0/16 224.0.0.0/4 240.0.0.0/4 ::1 fc00::/7 fe80::/10
+acl SSL_ports port 443
+acl fetch_ports port 80 443
+acl fetch_methods method GET CONNECT
+acl CONNECT method CONNECT
+http_access deny CONNECT !SSL_ports
+http_access deny no_dst
+http_access allow backend_host setup_sites
+http_access allow backend_host fetch_methods fetch_ports
+http_access deny all
+reply_body_max_size 17 MB
+cache deny all
+access_log daemon:/var/log/squid/access.log
+forwarded_for delete
+via off

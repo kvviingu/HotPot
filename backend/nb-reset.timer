@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly harvest and reset of the fileserver01 honeypot container
+
+[Timer]
+OnCalendar=*-*-* 03:40:00 UTC
+RandomizedDelaySec=40min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

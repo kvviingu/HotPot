@@ -1,0 +1,13 @@
+{
+  "ssh_host": "203.0.113.10",
+  "ssh_port": 22222,
+  "ssh_user": "ubuntu",
+  "ssh_key": "~/.ssh/honeypot_admin",
+  "known_hosts": "~/.ssh/known_hosts_honeypot",
+  "ssh_path": "",
+  "own_ips": [],
+  "backend_host": "10.0.1.10",
+  "backend_user": "ubuntu",
+  "sync_seconds": 15,
+  "port": 8787
+}

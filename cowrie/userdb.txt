@@ -1,0 +1,12 @@
+# Who may log in. First matching line wins; "!" rejects. Anything not matched is rejected.
+# Known honeypot-detection probes (Mirai-family and others) must fail, as on a real box.
+*:x:!/345gs5662d34/i
+*:x:!/honeypot/i
+*:x:!/cowrie/i
+*:x:!/^.{17,}$/
+*:x:!/^\s*$/
+# Only accounts that exist in /etc/passwd can log in; a real sshd rejects made-up users.
+root:x:*
+ubuntu:x:*
+deploy:x:*
+admin:x:*

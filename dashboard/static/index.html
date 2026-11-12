@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Honeypot console</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="bar">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+      <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2"/>
+      <circle cx="16" cy="16" r="7" fill="none" stroke="currentColor" stroke-width="2" opacity=".55"/>
+      <circle cx="16" cy="16" r="2.6" fill="currentColor"/>
+    </svg>
+    <div>
+      <h1>Honeypot console</h1>
+      <p id="host">Connecting…</p>
+    </div>
+  </div>
+
+  <nav class="views" role="tablist" aria-label="Views">
+    <button role="tab" id="tab-overview" data-view="overview" aria-controls="view-overview">Overview</button>
+    <button role="tab" id="tab-sessions" data-view="sessions" aria-controls="view-sessions">Sessions <span class="count" id="count-sessions"></span></button>
+    <button role="tab" id="tab-traps" data-view="traps" aria-controls="view-traps">Traps <span class="count hot" id="count-traps" hidden></span></button>
+    <button role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats">Statistics</button>
+    <button role="tab" id="tab-intel" data-view="intel" aria-controls="view-intel">Intel</button>
+    <button role="tab" id="tab-samples" data-view="samples" aria-controls="view-samples">Samples</button>
+    <button role="tab" id="tab-report" data-view="report" aria-controls="view-report">Report</button>
+    <button role="tab" id="tab-status" data-view="status" aria-controls="view-status">Status <span class="led tiny" id="status-led"></span></button>
+    <button role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings">Settings</button>
+  </nav>
+
+  <div class="tools">
+    <div class="seg" role="radiogroup" aria-label="Period" id="range">
+      <button role="radio" data-range="24h">24 h</button>
+      <button role="radio" data-range="7d">7 days</button>
+      <button role="radio" data-range="30d">30 days</button>
+      <button role="radio" data-range="all">All</button>
+    </div>
+    <label class="switch"><input type="checkbox" id="own"><span>My IP</span></label>
+    <button class="sync" id="sync" type="button" aria-describedby="syncstate">
+      <span class="led" id="led"></span><span id="syncstate">Sync</span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <!-- Overview ------------------------------------------------------------------------- -->
+  <section class="view" id="view-overview" role="tabpanel" aria-labelledby="tab-overview">
+    <div class="figures" id="kpis" aria-label="Key numbers"></div>
+
+    <div class="hero">
+      <div class="panel map-panel">
+        <div class="phead">
+          <h2>Where sessions come from</h2>
+          <p class="note" id="map-note"></p>
+        </div>
+        <div class="mapbox">
+          <div class="mapctl" id="map-ctl" hidden>
+            <div class="seg small" role="radiogroup" aria-label="Map region" id="map-regions"></div>
+            <div class="seg small zoom">
+              <button type="button" id="map-in" aria-label="Zoom in" title="Zoom in">+</button>
+              <button type="button" id="map-out" aria-label="Zoom out" title="Zoom out">&minus;</button>
+            </div>
+          </div>
+          <div class="mapwrap" id="mapwrap">
+            <div id="map" class="map"></div>
+            <svg id="live-layer" class="live-layer" aria-hidden="true"></svg>
+          </div>
+        </div>
+        <div class="maplegend" id="map-legend" hidden></div>
+        <div class="live">
+          <div class="live-head">
+            <span class="live-led" id="live-led"></span>
+            <h3>Live hits</h3>
+            <span class="note" id="live-rate"></span>
+          </div>
+          <ol class="ticker" id="ticker" aria-live="off"></ol>
+        </div>
+      </div>
+      <aside class="panel feed-panel">
+        <div class="phead">
+          <h2>Latest sessions</h2>
+          <button class="link" type="button" data-goto="sessions">All sessions</button>
+        </div>
+        <ol class="feed" id="feed"></ol>
+      </aside>
+    </div>
+
+    <div class="split">
+      <div class="panel">
+        <div class="phead">
+          <h2>Sessions over time</h2>
+          <div class="legend" id="activity-legend"></div>
+        </div>
+        <div id="activity" class="chart"></div>
+      </div>
+      <div class="panel">
+        <div class="phead"><h2>Who is behind them</h2></div>
+        <div id="classes"></div>
+        <div class="phead sub">
+          <h2>How far they got</h2>
+          <div class="seg small" role="radiogroup" aria-label="Protocol" id="funnel-kind">
+            <button role="radio" data-kind="ssh" aria-checked="true">SSH / Telnet</button>
+            <button role="radio" data-kind="web" aria-checked="false">Web</button>
+            <button role="radio" data-kind="svc" aria-checked="false">Decoys</button>
+          </div>
+        </div>
+        <div id="funnel"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Statistics ------------------------------------------------------------------------ -->
+  <section class="view" id="view-stats" role="tabpanel" aria-labelledby="tab-stats" hidden>
+    <div class="panel st-summary">
+      <div class="phead">
+        <h2>Summary</h2>
+        <span class="st-period" id="st-period"></span>
+        <span class="st-busy" id="st-busy" hidden>Updating…</span>
+      </div>
+      <ul class="st-hl" id="st-highlights"></ul>
+    </div>
+    <div class="st-cards" id="st-cards" role="radiogroup" aria-label="Metric for the chart below"></div>
+    <div class="panel">
+      <div class="phead">
+        <h2 id="st-main-title">Sessions</h2>
+        <div class="st-legend" id="st-main-legend"></div>
+        <button class="small" type="button" data-csv="main">CSV</button>
+      </div>
+      <div id="st-main" class="chart"></div>
+    </div>
+    <div class="st-row">
+      <div class="panel">
+        <div class="phead">
+          <h2>When they come (UTC)</h2>
+          <div class="seg small" role="radiogroup" aria-label="Protocol" id="st-heat-kind">
+            <button role="radio" data-kind="all" aria-checked="true">All</button>
+            <button role="radio" data-kind="web" aria-checked="false">Web</button>
+            <button role="radio" data-kind="ssh" aria-checked="false">SSH / Telnet</button>
+            <button role="radio" data-kind="svc" aria-checked="false">Decoys</button>
+          </div>
+          <button class="small" type="button" data-csv="heat">CSV</button>
+        </div>
+        <div id="st-heat"></div>
+      </div>
+      <div class="panel">
+        <div class="phead">
+          <h2>How far they got</h2>
+          <button class="small" type="button" data-csv="funnels">CSV</button>
+        </div>
+        <div class="st-funnels" id="st-funnels"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="phead">
+        <h2>Who sent it</h2>
+        <div class="seg small" role="radiogroup" aria-label="Group by" id="st-break-kind">
+          <button role="radio" data-kind="class" aria-checked="true">Actor type</button>
+          <button role="radio" data-kind="country" aria-checked="false">Country</button>
+          <button role="radio" data-kind="net" aria-checked="false">Network</button>
+        </div>
+        <button class="small" type="button" data-csv="breakdown">CSV</button>
+      </div>
+      <div class="st-legend" id="st-break-legend"></div>
+      <div class="st-breakrow">
+        <div id="st-break" class="chart"></div>
+        <div class="st-share" id="st-share"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="phead">
+        <h2>Distributions</h2>
+        <button class="small" type="button" data-csv="dists">CSV</button>
+      </div>
+      <div class="st-dists" id="st-dists"></div>
+    </div>
+    <div class="panel">
+      <div class="phead">
+        <h2>MITRE ATT&amp;CK techniques seen</h2>
+        <button class="small" type="button" data-csv="matrix">CSV</button>
+      </div>
+      <div class="st-matrix" id="st-matrix"></div>
+    </div>
+    <div class="panel">
+      <div class="phead">
+        <h2>What changed</h2>
+        <div class="seg small st-moverseg" role="radiogroup" aria-label="Dimension" id="st-mover-kind"></div>
+        <button class="small" type="button" data-csv="movers">CSV</button>
+      </div>
+      <div class="st-movers" id="st-movers"></div>
+    </div>
+    <div class="st-row">
+      <div class="panel">
+        <div class="phead"><h2>Countries</h2><button class="small" type="button" data-csv="countries">CSV</button></div>
+        <div id="st-countries"></div>
+      </div>
+      <div class="panel">
+        <div class="phead"><h2>Services</h2><button class="small" type="button" data-csv="kinds">CSV</button></div>
+        <div id="st-kinds"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Traps: AI agents, tripwires and decoy services -------------------------------------- -->
+  <section class="view" id="view-traps" role="tabpanel" aria-labelledby="tab-traps" hidden>
+    <div class="panel">
+      <div class="phead">
+        <div>
+          <h2>AI agents and tripwires</h2>
+          <p class="note">Bait files hold a unique instruction or credential. Acting on one shows exactly what the visitor read.</p>
+        </div>
+        <span class="note" id="agents-note"></span>
+      </div>
+      <div id="agents" class="agents"></div>
+    </div>
+    <div class="panel">
+      <div class="phead">
+        <div>
+          <h2>Decoy services</h2>
+          <p class="note">Fake Redis, Docker, databases, AI and cluster APIs, plus the web honeypot's MCP server, A2A agent and agent docs. Select one to list its sessions.</p>
+        </div>
+      </div>
+      <div id="decoys" class="svcgrid"></div>
+    </div>
+  </section>
+
+  <!-- Sessions ------------------------------------------------------------------------- -->
+  <section class="view" id="view-sessions" role="tabpanel" aria-labelledby="tab-sessions" hidden>
+    <div class="panel">
+      <div class="filters">
+        <input id="f-text" type="search" placeholder="Search IP, country, network, path, command" aria-label="Search sessions">
+        <select id="f-class" aria-label="Actor type"></select>
+        <select id="f-kind" aria-label="Protocol">
+          <option value="">All protocols</option>
+          <option value="web">Web</option>
+          <option value="ssh">SSH</option>
+          <option value="telnet">Telnet</option>
+          <option value="redis">Redis</option>
+          <option value="docker">Docker API</option>
+          <option value="elastic">Elasticsearch</option>
+          <option value="mysql">MySQL</option>
+          <option value="ollama">Ollama (AI API)</option>
+          <option value="k8s">Kubernetes API</option>
+          <option value="rdp">RDP</option>
+          <option value="smb">SMB</option>
+        </select>
+        <select id="f-sort" aria-label="Sort order">
+          <option value="interest">Most interesting first</option>
+          <option value="start">Newest first</option>
+          <option value="agent">Highest agent score first</option>
+        </select>
+      </div>
+      <div class="tablewrap">
+        <table class="grid" id="sessions">
+          <thead><tr>
+            <th>Started</th><th>Source</th><th>Origin</th><th>Actor</th><th class="num" title="Agent likelihood, 0 to 100">Agent</th><th>Got as far as</th>
+            <th class="num">Actions</th><th class="num">Typical pause</th><th>What happened</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="tablefoot">
+        <p class="note" id="sessions-note"></p>
+        <button id="more" type="button" hidden>Show 200 more</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Intel ---------------------------------------------------------------------------- -->
+  <section class="view" id="view-intel" role="tabpanel" aria-labelledby="tab-intel" hidden>
+    <div class="intel">
+      <nav class="subnav" id="subnav" aria-label="Intel lists"></nav>
+      <div class="panel intel-main">
+        <div class="phead">
+          <div>
+            <h2 id="intel-title"></h2>
+            <p class="note" id="intel-desc"></p>
+          </div>
+          <input id="intel-filter" type="search" placeholder="Filter this list" aria-label="Filter this list">
+        </div>
+        <div class="tablewrap">
+          <table class="grid ranked" id="intel-table">
+            <thead><tr><th class="num">#</th><th id="intel-col">Item</th><th class="num">Count</th><th class="sharecol">Share</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="note" id="intel-foot"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Samples ---------------------------------------------------------------------------- -->
+  <section class="view" id="view-samples" role="tabpanel" aria-labelledby="tab-samples" hidden>
+    <div class="panel">
+      <div class="phead">
+        <div>
+          <h2>Captured samples</h2>
+          <p class="note" id="samples-note"></p>
+        </div>
+        <button class="sync" id="scan-now" type="button">Rescan with YARA</button>
+      </div>
+      <div class="tablewrap">
+        <table class="grid samples" id="samples-table">
+          <thead><tr><th>Last seen</th><th>File</th><th class="num">Size</th><th>Came from</th><th>Verdicts</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="note" id="samples-foot"></p>
+    </div>
+  </section>
+
+  <!-- Weekly report ---------------------------------------------------------------------- -->
+  <section class="view" id="view-report" role="tabpanel" aria-labelledby="tab-report" hidden>
+    <div class="panel">
+      <div class="phead">
+        <div>
+          <h2 id="report-title">Weekly report</h2>
+          <p class="note" id="report-note"></p>
+        </div>
+        <div class="rtools">
+          <label for="report-week" class="note">Week</label>
+          <select id="report-week"></select>
+          <a class="sync" id="report-dl" href="/api/report.html" download>Download HTML</a>
+        </div>
+      </div>
+      <div class="figures rfig" id="report-kpis" aria-label="Week in numbers"></div>
+      <div id="report-body"></div>
+    </div>
+  </section>
+
+  <!-- Status ----------------------------------------------------------------------------- -->
+  <section class="view" id="view-status" role="tabpanel" aria-labelledby="tab-status" hidden>
+    <div class="phead">
+      <p class="note" id="status-note">Checking the VMs…</p>
+      <button class="sync" id="status-refresh" type="button">Check now</button>
+    </div>
+    <div class="vmgrid" id="vmgrid"></div>
+  </section>
+
+  <!-- Settings ---------------------------------------------------------------------------- -->
+  <section class="view" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+    <form class="panel settings" id="settings-form" autocomplete="off">
+      <h2>Sample lookups</h2>
+      <p class="note">Used by "Check hash" on captured samples. Only the SHA-256 hash is sent, never the file.
+        Keys stay on this PC in <code>dashboard/data/settings.json</code>.</p>
+      <label for="s-vt">VirusTotal API key</label>
+      <input id="s-vt" type="password" spellcheck="false" aria-describedby="s-vt-state">
+      <p class="note" id="s-vt-state"></p>
+      <label for="s-mb">MalwareBazaar Auth-Key (abuse.ch)</label>
+      <input id="s-mb" type="password" spellcheck="false" aria-describedby="s-mb-state">
+      <p class="note" id="s-mb-state"></p>
+      <label class="check"><input id="s-auto" type="checkbox"> Check new samples automatically (4 a minute, VirusTotal's free limit)</label>
+
+      <h2>IP reputation</h2>
+      <p class="note">Used by "Check IP reputation" in a session. Only the attacker's IP is sent; your own IPs and private addresses never are.</p>
+      <label for="s-ab">AbuseIPDB API key</label>
+      <input id="s-ab" type="password" spellcheck="false" aria-describedby="s-ab-state">
+      <p class="note" id="s-ab-state"></p>
+      <label for="s-gn">GreyNoise API key (optional)</label>
+      <input id="s-gn" type="password" spellcheck="false" aria-describedby="s-gn-state">
+      <p class="note" id="s-gn-state"></p>
+      <label class="check"><input id="s-iprep" type="checkbox"> Check attacker IPs automatically (1 a minute, most interesting sessions first)</label>
+
+      <h2>Dashboard</h2>
+      <label for="s-sync">Pull logs every (seconds)</label>
+      <input id="s-sync" type="number" min="15" max="3600" step="1">
+      <label for="s-own">My own IPs, hidden unless "My IP" is on (comma separated)</label>
+      <input id="s-own" type="text" spellcheck="false">
+
+      <div class="actions">
+        <button type="submit" class="primary">Save settings</button>
+        <span class="note" id="settings-msg" role="status"></span>
+      </div>
+    </form>
+  </section>
+
+  <footer class="note" id="attribution"></footer>
+</main>
+
+<dialog id="drawer" aria-labelledby="d-title">
+  <div class="dhead">
+    <div>
+      <h2 id="d-title">Session</h2>
+      <p class="note" id="d-sub"></p>
+    </div>
+    <button id="d-close" type="button">Close</button>
+  </div>
+  <div id="d-body"></div>
+</dialog>
+
+<div id="tip" class="tip" role="tooltip" hidden></div>
+<script src="/stats.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

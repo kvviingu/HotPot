@@ -1,0 +1,168 @@
+# Values in ${...} come from .env, which install/front.sh generates from honeypot.conf.
+services:
+  cowrie:
+    # Pinned: cowrie/patches hooks into this build's internals. Re-test them before bumping.
+    image: cowrie/cowrie@sha256:99dc2531f317b0d1a44feccd1cdd2a5ec8fc456b31cb0ed59e7bed1a35dbd345
+    container_name: cowrie
+    restart: unless-stopped
+    env_file:
+      - path: ./backend.env
+        required: false
+    ports:
+      - "22:2222"
+      - "23:2223"
+    environment:
+      COWRIE_TELNET_ENABLED: "yes"
+      COWRIE_HONEYPOT_HOSTNAME: "fileserver01"
+      # Accept SSH tunnel requests but never relay them (fake channel that only logs the data).
+      COWRIE_SSH_FORWARDING: "true"
+      COWRIE_SSH_FORWARD_REDIRECT: "false"
+      COWRIE_SSH_FORWARD_TUNNEL: "false"
+      # Look like the same Ubuntu 24.04 box the web side and the real sshd report (built by build_fs.py).
+      COWRIE_SSH_VERSION: "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.20"
+      COWRIE_SHELL_SSH_VERSION: "OpenSSH_9.6p1 Ubuntu-3ubuntu13.5, OpenSSL 3.0.13 30 Jan 2024"
+      COWRIE_SHELL_KERNEL_VERSION: "6.8.0-1013-oracle"
+      COWRIE_SHELL_KERNEL_BUILD_STRING: "#13-Ubuntu SMP PREEMPT_DYNAMIC Mon Sep 16 14:43:28 UTC 2024"
+      COWRIE_SHELL_FILESYSTEM: "/cowrie/custom/fs.pickle"
+      # Algorithm lists of a CIS-hardened OpenSSH (matches honeyfs /etc/ssh/sshd_config); KEX and
+      # host key order are set in patches/nb_patches.py.
+      COWRIE_SSH_CIPHERS: "aes128-ctr,aes192-ctr,aes256-ctr"
+      COWRIE_SSH_MACS: "hmac-sha2-256,hmac-sha2-512,hmac-sha1"
+      COWRIE_SSH_COMPRESSION: "none,zlib@openssh.com"
+      # Proxy mode: after login, sessions go to the real Ubuntu container "fileserver01" on the private
+      # backend VM (backend/). The backend password comes from backend.env; the backend user is the
+      # name the attacker typed (patches/nb_patches.py, _patch_proxy_login).
+      COWRIE_HONEYPOT_BACKEND: "${COWRIE_BACKEND:-proxy}"
+      COWRIE_PROXY_BACKEND: "simple"
+      COWRIE_PROXY_BACKEND_SSH_HOST: "${BACKEND_IP:-127.0.0.1}"
+      COWRIE_PROXY_BACKEND_SSH_PORT: "${BACKEND_SSH_PORT:-2222}"
+      COWRIE_PROXY_BACKEND_TELNET_HOST: "${BACKEND_IP:-127.0.0.1}"
+      COWRIE_PROXY_BACKEND_TELNET_PORT: "${BACKEND_TELNET_PORT:-2323}"
+      COWRIE_PROXY_BACKEND_USER: "root"
+      COWRIE_PROXY_TELNET_USERNAME_PROMPT_REGEX: '(\n|^)fileserver01 login: .*'
+      # sitecustomize.py in /cowrie/patches loads our commands and protocol patches.
+      PYTHONPATH: "/cowrie/patches:/cowrie/cowrie-git/src"
+    volumes:
+      - ./cowrie/patches:/cowrie/patches:ro
+      - /etc/ssh/moduli:/etc/ssh/moduli:ro
+      - cowrie-var:/cowrie/cowrie-git/var
+      - cowrie-etc:/cowrie/cowrie-git/etc
+      - ./cowrie/fs.pickle:/cowrie/custom/fs.pickle:ro
+      - ./cowrie/userdb.txt:/cowrie/cowrie-git/etc/userdb.txt:ro
+    mem_limit: 300m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  web:
+    build: ./web
+    container_name: webpot
+    restart: unless-stopped
+    ports:
+      - "80:8080"
+      - "443:8443"
+    env_file:
+      - path: ./openrouter.env
+        required: false
+    environment:
+      LLM_ENABLED: "${LLM_ENABLED:-1}"
+      LLM_MODELS: "${LLM_MODELS:-}"
+      LLM_DAILY_CAP: "${LLM_DAILY_CAP:-300}"
+      LLM_PER_MINUTE: "${LLM_PER_MINUTE:-10}"
+      PUBLIC_HOST: "${FRONT_PUBLIC_IP:-}"
+    volumes:
+      - web-data:/data
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 200m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  decoys:
+    # Fake Redis / Docker API / Elasticsearch / MySQL / Ollama / Kubernetes API / RDP / SMB
+    # (decoys/honeysvc.py): canned replies, nothing is run. RDP and SMB stop after the NTLM login.
+    # Only started when DECOYS_ENABLED=1 (COMPOSE_PROFILES=decoys in .env).
+    profiles: ["decoys"]
+    build: ./decoys
+    container_name: decoys
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+      - "2375:2375"
+      - "9200:9200"
+      - "3306:3306"
+      - "11434:11434"
+      - "6443:6443"
+      - "3389:3389"
+      - "445:1445"
+    environment:
+      SVC_ENABLED: "${DECOY_SERVICES:-redis,docker,elastic,mysql,ollama,k8s,rdp,smb}"
+      SVC_HOSTNAME: "fileserver01"
+    volumes:
+      - decoy-data:/data
+    read_only: true
+    mem_limit: 128m
+    pids_limit: 64
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  ids:
+    # Suricata network IDS (ids/): reads a copy of the traffic on the public interface and logs rule
+    # alerts and TLS client fingerprints (JA3/JA4) to eve.json. It opens no ports and blocks nothing.
+    # Admin SSH and private VM-to-VM traffic are filtered out before inspection.
+    # Only started when IDS_ENABLED=1 (COMPOSE_PROFILES=ids in .env). Rules: ids/maintain.sh, daily.
+    profiles: ["ids"]
+    image: jasonish/suricata:8.0.7
+    container_name: ids
+    restart: unless-stopped
+    network_mode: host
+    cap_add: [NET_ADMIN, NET_RAW, SYS_NICE]
+    security_opt: ["no-new-privileges:true"]
+    command:
+      - "-c"
+      - "/etc/suricata-hotpot/suricata.yaml"
+      - "--af-packet=${IDS_INTERFACE:-ens3}"
+      - "not port ${ADMIN_SSH_PORT:-22222} and not (src net 10.0.0.0/8 and dst net 10.0.0.0/8) and not host 169.254.169.254"
+    volumes:
+      - ./ids/suricata.yaml:/etc/suricata-hotpot/suricata.yaml:ro
+      - ./ids/disable.conf:/etc/suricata-hotpot/disable.conf:ro
+      - ids-lib:/var/lib/suricata
+      - ids-log:/var/log/suricata
+    # a 1 GB VM: if Suricata outgrows this, only it is restarted, never the honeypots
+    mem_limit: 450m
+    memswap_limit: 700m
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  egress:
+    # Proxy for the private backend VM host only (bound to the private IP; see egress/squid.conf.template).
+    # Only started when the backend is enabled (COMPOSE_PROFILES=backend in .env).
+    profiles: ["backend"]
+    image: ubuntu/squid:6.6-24.04_edge
+    container_name: egress
+    restart: unless-stopped
+    ports:
+      - "${FRONT_PRIVATE_IP:?set FRONT_PRIVATE_IP in honeypot.conf}:3128:3128"
+    volumes:
+      - ./egress/squid.conf:/etc/squid/squid.conf:ro
+    mem_limit: 120m
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+volumes:
+  cowrie-var:
+  cowrie-etc:
+  web-data:
+  decoy-data:
+  ids-lib:
+  ids-log:

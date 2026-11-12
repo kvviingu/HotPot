@@ -1,0 +1,4 @@
+# shell scripts, configs and persona files run on Linux: always LF
+* text=auto eol=lf
+*.pickle binary
+*.cmd text eol=crlf

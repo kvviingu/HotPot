@@ -1,0 +1,13 @@
+# Domains the backend VM may reach through the front VM's Squid proxy during setup (package mirrors,
+# the Incus image server, the Zabbly Incus repository). One domain per line; a leading dot also
+# matches subdomains. Add your provider's own mirror with EXTRA_APT_MIRRORS in honeypot.conf.
+.archive.ubuntu.com
+.security.ubuntu.com
+.ports.ubuntu.com
+.launchpadcontent.net
+.launchpad.net
+.canonical.com
+.snapcraft.io
+.debian.org
+.linuxcontainers.org
+pkgs.zabbly.com
