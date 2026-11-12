@@ -1324,7 +1324,134 @@ async function loadSettings() {
     ts.append(document.createTextNode("Token saved. "), b);
   }
   fwTypeChanged();
-  fwStatus(st.forward_status, fw.enabled);
+  fwStatus(st.forward_status, fw);
+  const vt = st.virustotal_api_key.set, mb = st.malwarebazaar_auth_key.set;
+  setChip("lookups", vt || mb ? `${(vt ? 1 : 0) + (mb ? 1 : 0)} of 2 keys` + (st.auto_lookup ? ", automatic" : "") : "No keys",
+    vt || mb ? "ok" : "muted", `${(vt ? 1 : 0) + (mb ? 1 : 0)}/2`);
+  const ab = st.abuseipdb_api_key.set, gn = st.greynoise_api_key.set;
+  setChip("iprep", ab ? "AbuseIPDB" + (gn ? " and GreyNoise" : "") + (st.auto_iprep ? ", automatic" : "") : gn ? "GreyNoise only" : "No keys",
+    ab ? "ok" : "muted", `${(ab ? 1 : 0) + (gn ? 1 : 0)}/2`);
+  setChip("dash", `Every ${st.sync_seconds} s`, "muted", st.sync_seconds + " s");
+  loadAbout();
+}
+
+// A status label on each Settings card, and a short copy of it in the side menu.
+function setChip(key, text, cls, short) {
+  const c = $("chip-" + key);
+  c.className = "badge " + (cls || "muted");
+  c.textContent = text;
+  $("nav-" + key).textContent = short === undefined ? "" : short;
+}
+
+function kvGrid(rows) {
+  const g = el("div", "kvgrid");
+  for (const [label, value, mono, note] of rows) {
+    if (value === null || value === undefined || value === "") continue;
+    const kv = el("div", "kv");
+    kv.append(el("span", "note", label), el("span", "v" + (mono ? " mono" : ""), value));
+    if (note) kv.append(el("span", "note", note));
+    g.append(kv);
+  }
+  return g;
+}
+function kvSection(title, ...children) {
+  const s = el("div", "kvsec");
+  if (title) s.append(el("h3", "", title));
+  s.append(...children);
+  return s;
+}
+function feats(items) {
+  const f = el("div", "feats");
+  for (const [label, on] of items) {
+    const x = el("span", "feat" + (on ? " on" : ""), label);
+    x.title = on ? "On" : "Off";
+    f.append(x);
+  }
+  return f;
+}
+const DECOY_NAMES = { redis: "Redis 6379", docker: "Docker API 2375", elastic: "Elasticsearch 9200", mysql: "MySQL 3306",
+  ollama: "Ollama 11434", k8s: "Kubernetes 6443", rdp: "RDP 3389", smb: "SMB 445" };
+
+async function loadAbout() {
+  let a;
+  try { a = await (await fetch("/api/about")).json(); } catch (e) { return; }
+  // ---- deployment (honeypot.conf, read-only)
+  const d = $("deploy-body"), c = a.conf;
+  clear(d);
+  if (!c || !Object.keys(c).length) {
+    d.append(el("p", "callout", "No honeypot.conf next to the dashboard. Run hotpot setup to create one."));
+    setChip("deploy", "Not found", "bad", "–");
+  } else {
+    const on = (k) => c[k] === "1";
+    const days = (k) => (c[k] === "0" ? "Forever" : `${c[k]} days`);
+    const dflt = (k) => (a.conf_defaults.includes(k) ? "default" : "");
+    d.append(kvSection("", feats([["Real-shell backend", on("BACKEND_ENABLED")], ["Decoy services", on("DECOYS_ENABLED")],
+      ["Suricata IDS", on("IDS_ENABLED")], ["LLM pages for unknown paths", on("LLM_ENABLED")]])));
+    d.append(kvSection("Front VM", kvGrid([["Public IP", c.FRONT_PUBLIC_IP, true], ["Private IP", c.FRONT_PRIVATE_IP, true],
+      ["Admin SSH port", c.ADMIN_SSH_PORT, true]])));
+    if (on("BACKEND_ENABLED"))
+      d.append(kvSection("Backend VM", kvGrid([["Private IP", c.BACKEND_IP, true], ["Container", c.CT_NAME, true],
+        ["Container memory", c.CT_MEMORY], ["Container disk", c.CT_DISK_POOL_SIZE]])));
+    if (on("DECOYS_ENABLED")) {
+      const svc = (c.DECOY_SERVICES || "").split(",").map((x) => x.trim()).filter(Boolean);
+      d.append(kvSection("Decoys", feats(Object.keys(DECOY_NAMES).map((k) => [DECOY_NAMES[k], svc.includes(k)]))));
+    }
+    if (on("LLM_ENABLED"))
+      d.append(kvSection("Web honeypot fallback", kvGrid([["Models, tried in order", (c.LLM_MODELS || "").split(",").join(", "), true],
+        ["Daily cap", c.LLM_DAILY_CAP], ["Per minute", c.LLM_PER_MINUTE]])));
+    d.append(kvSection("Clean-up on the VMs", kvGrid([["Rotated logs and recordings", days("LOG_KEEP_DAYS"), false, dflt("LOG_KEEP_DAYS")],
+      ["Samples and harvests", days("SAMPLE_KEEP_DAYS"), false, dflt("SAMPLE_KEEP_DAYS")],
+      ["Oldest data goes above", c.DISK_MAX_PERCENT + "% disk", false, dflt("DISK_MAX_PERCENT")]])));
+    const two = on("BACKEND_ENABLED");
+    setChip("deploy", two ? "Two VMs, real shell" : "One VM, emulated shell", "muted", two ? "2 VMs" : "1 VM");
+  }
+  // ---- identity (persona.json)
+  const id = a.identity, ib = $("identity-body");
+  clear(ib);
+  ib.append(kvSection("", kvGrid([["Company", `${id.brand} ${id.industry}`], ["Host name", id.host, true],
+    ["Internal IP", id.ip, true], ["Canary word", id.check, true], ["Canary tokens", fmtN(id.tokens)],
+    ["Tripwire credentials", fmtN(id.creds)]])));
+  if (id.reference) {
+    const w = el("p", "callout");
+    w.append(document.createTextNode("This install still uses the public reference identity from the repository, so anyone who reads it can recognise the sensor. Run "),
+      el("code", "", "hotpot identity new"), document.createTextNode(", then "), el("code", "", "hotpot deploy"), document.createTextNode("."));
+    ib.append(w);
+    setChip("identity", "Public reference", "warn", "public");
+  } else setChip("identity", "Own identity", "ok", "own");
+  // ---- about
+  const ab = $("about-body"), dt = a.data;
+  clear(ab);
+  const lines = Object.values(dt.lines || {}).reduce((x, y) => x + (y || 0), 0);
+  ab.append(kvSection("", kvGrid([["HotPot", a.version], ["Python", a.python], ["Sessions loaded", fmtN(dt.sessions)],
+    ["Log lines read", fmtN(lines)], ["Synced logs", `${fmtBytes(dt.mirror_bytes)} in ${fmtN(dt.mirror_files)} files`],
+    ["Dashboard data", fmtBytes(dt.bytes)], ["Last sync", fmtAgo(a.sync.last_ok)]])),
+  kvSection("Data folder", kvGrid([["Everything this dashboard keeps", dt.path, true]])));
+  setChip("about", "Version " + a.version, "muted", a.version);
+}
+
+// side menu: jump to a card, and mark the card in view
+for (const b of document.querySelectorAll("#set-nav button")) {
+  b.addEventListener("click", () => {
+    $(b.dataset.sec).scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+    markNav(b.dataset.sec);
+  });
+}
+function markNav(id) {
+  for (const b of document.querySelectorAll("#set-nav button")) b.setAttribute("aria-current", String(b.dataset.sec === id));
+}
+{
+  // the card under the top of the view is current; at the very bottom, the last card is
+  let queued = false;
+  const pick = () => {
+    queued = false;
+    const cards = [...document.querySelectorAll(".scard")];
+    if (!cards.length || !cards[0].offsetParent) return;  // Settings tab hidden
+    let cur = cards[0];
+    for (const c of cards) if (c.getBoundingClientRect().top <= 140) cur = c;
+    if (innerHeight + scrollY >= document.documentElement.scrollHeight - 4) cur = cards[cards.length - 1];
+    markNav(cur.id);
+  };
+  addEventListener("scroll", () => { if (!queued) { queued = true; requestAnimationFrame(pick); } }, { passive: true });
 }
 const FW_HELP = {
   syslog: ["host:port, e.g. siem.example.lan:6514", null, null],
@@ -1341,14 +1468,20 @@ function fwTypeChanged() {
   if (tok) $("s-fw-token-label").textContent = tok;
   if (idx) $("s-fw-index-label").textContent = idx;
 }
-function fwStatus(s, on) {
-  const parts = [];
-  if (!on) parts.push("Off.");
-  if (s && s.last_ok) parts.push(`Last sent ${new Date(s.last_ok).toLocaleTimeString()}.`);
-  if (s && s.sent) parts.push(`${fmtN(s.sent)} events since the dashboard started` + (s.rejected ? `, ${fmtN(s.rejected)} rejected.` : "."));
-  if (s && s.pending > 0) parts.push(`${fmtN(Math.ceil(s.pending / 1024))} kB waiting.`);
-  if (s && s.error) parts.push("Error: " + s.error);
-  $("s-fw-state").textContent = parts.join(" ");
+const FW_NAME = { syslog: "syslog", elasticsearch: "Elasticsearch", splunk: "Splunk", http: "HTTP" };
+function fwStatus(s, fw) {
+  const on = fw.enabled;
+  $("s-fw-stats").hidden = !on;
+  if (s) {
+    $("fw-sent").textContent = fmtN(s.sent);
+    $("fw-rej").textContent = fmtN(s.rejected);
+    $("fw-wait").textContent = s.pending > 0 ? fmtBytes(s.pending) : "nothing";
+    $("fw-last").textContent = fmtAgo(s.last_ok);
+  }
+  $("s-fw-state").textContent = on && s && s.error ? "Last error: " + s.error : "";
+  if (!on) setChip("forward", "Off", "muted", "off");
+  else if (s && s.error) setChip("forward", "Can't reach " + FW_NAME[fw.type], "bad", "error");
+  else setChip("forward", "On, to " + FW_NAME[fw.type], "ok", "on");
 }
 function fwBody() {
   const f = { enabled: $("s-fw-on").checked, type: $("s-fw-type").value, address: $("s-fw-addr").value.trim(),

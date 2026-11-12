@@ -292,6 +292,69 @@ def settings_view() -> dict:
     return out
 
 
+# ----------------------------------------------------------------------------- about (Settings tab)
+
+REPO = os.path.dirname(BASE)
+# honeypot.conf keys shown read-only in Settings; nothing else from the file is ever sent to the page
+CONF_SHOWN = ("FRONT_PUBLIC_IP", "FRONT_PRIVATE_IP", "ADMIN_SSH_PORT", "BACKEND_ENABLED", "BACKEND_IP", "CT_NAME",
+              "CT_MEMORY", "CT_DISK_POOL_SIZE", "LLM_ENABLED", "LLM_MODELS", "LLM_DAILY_CAP", "LLM_PER_MINUTE",
+              "DECOYS_ENABLED", "DECOY_SERVICES", "IDS_ENABLED", "LOG_KEEP_DAYS", "SAMPLE_KEEP_DAYS", "DISK_MAX_PERCENT")
+CONF_DEFAULTS = {"LOG_KEEP_DAYS": "30", "SAMPLE_KEEP_DAYS": "90", "DISK_MAX_PERCENT": "85"}
+
+
+def hotpot_conf() -> dict:
+    path = os.environ.get("HONEYPOT_CONF") or os.path.join(REPO, "honeypot.conf")
+    out = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                k, eq, v = line.strip().partition("=")
+                if eq and k in CONF_SHOWN:
+                    out[k] = v.strip()[:300]
+    except OSError:
+        return {}
+    return out
+
+
+def dir_size(path: str) -> tuple:
+    n = total = 0
+    for root, _dirs, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(root, f))
+                n += 1
+            except OSError:
+                pass
+    return n, total
+
+
+def about_view() -> dict:
+    conf = hotpot_conf()
+    defaults = [k for k in CONF_DEFAULTS if k not in conf]
+    if conf:
+        conf = {**CONF_DEFAULTS, **conf}
+    try:
+        with open(os.path.join(REPO, "hotpot.py"), encoding="utf-8") as f:
+            m = re.search(r'^VERSION = "([0-9][0-9A-Za-z.+-]*)"', f.read(), re.M)
+        version = m.group(1) if m else "?"
+    except OSError:
+        version = "?"
+    files, mirror_bytes = dir_size(MIRROR)
+    _n, data_bytes = dir_size(DATA)
+    with lock:
+        n_sessions, built, lines = len(MODEL["sessions"]), MODEL["built"], dict(MODEL["lines"])
+    return {
+        "version": version, "python": sys.version.split()[0], "platform": sys.platform,
+        "conf": conf, "conf_defaults": defaults,
+        "identity": {"brand": IDENT["brand"], "industry": IDENT["industry"], "host": IDENT["host"],
+                     "check": IDENT["check"], "ip": IDENT["ip"], "tokens": len(IDENT.get("tokens") or {}),
+                     "creds": len(IDENT.get("creds") or []), "reference": persona.is_reference(IDENT)},
+        "data": {"path": DATA, "bytes": data_bytes, "mirror_files": files, "mirror_bytes": mirror_bytes,
+                 "sessions": n_sessions, "built": built, "lines": lines},
+        "sync": {"last_ok": STATUS.get("last_ok"), "error": STATUS.get("error")},
+    }
+
+
 IP_RE = re.compile(r"^[0-9A-Fa-f:.]{2,45}$")
 KEY_RE = re.compile(r"^[A-Za-z0-9_\-]{8,200}$")
 
@@ -3678,6 +3741,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(vm_status(q.get("force", ["0"])[0] == "1"))
         if u.path == "/api/settings":
             return self.send_json(settings_view())
+        if u.path == "/api/about":
+            return self.send_json(about_view())
         if u.path == "/api/ioc":
             try:
                 r = ioc_export(q)

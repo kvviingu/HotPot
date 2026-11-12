@@ -17,7 +17,7 @@ fails and says "backend failed" when only the backend pull fails. Settings: [con
 | Samples | captured files with origin, YARA matches and hash lookups |
 | Report | weekly report for any ISO week, including ATT&CK techniques and top IDS alerts |
 | Status | VM, container and timer health, container resets, last IDS event and rule update |
-| Settings | API keys, automatic lookups, sync interval, own IPs |
+| Settings | API keys, automatic lookups, log forwarding, sync interval, own IPs; read-only views of the VM deployment, the decoy identity and this install (version, data size, links) |
 
 The 24 h / 7 days / 30 days / All buttons set the time range.
 

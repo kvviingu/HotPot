@@ -393,88 +393,195 @@
 
   <!-- Settings ---------------------------------------------------------------------------- -->
   <section class="view" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
-    <form class="panel settings" id="settings-form" autocomplete="off">
-      <h2>Sample lookups</h2>
-      <p class="note">Used by "Check hash" on captured samples. Only the SHA-256 hash is sent, never the file.
-        Keys stay on this PC in <code>dashboard/data/settings.json</code>.</p>
-      <label for="s-vt">VirusTotal API key</label>
-      <input id="s-vt" type="password" spellcheck="false" aria-describedby="s-vt-state">
-      <p class="note" id="s-vt-state"></p>
-      <label for="s-mb">MalwareBazaar Auth-Key (abuse.ch)</label>
-      <input id="s-mb" type="password" spellcheck="false" aria-describedby="s-mb-state">
-      <p class="note" id="s-mb-state"></p>
-      <label class="check"><input id="s-auto" type="checkbox"> Check new samples automatically (4 a minute, VirusTotal's free limit)</label>
+    <div class="setlayout">
+      <nav class="subnav" id="set-nav" aria-label="Settings sections">
+        <h3>On this PC</h3>
+        <button type="button" data-sec="set-lookups">Sample lookups <span class="n" id="nav-lookups"></span></button>
+        <button type="button" data-sec="set-iprep">IP reputation <span class="n" id="nav-iprep"></span></button>
+        <button type="button" data-sec="set-forward">Forward logs <span class="n" id="nav-forward"></span></button>
+        <button type="button" data-sec="set-dash">Dashboard <span class="n" id="nav-dash"></span></button>
+        <h3>On the VMs</h3>
+        <button type="button" data-sec="set-deploy">Deployment <span class="n" id="nav-deploy"></span></button>
+        <button type="button" data-sec="set-identity">Identity <span class="n" id="nav-identity"></span></button>
+        <button type="button" data-sec="set-about">About <span class="n" id="nav-about"></span></button>
+      </nav>
 
-      <h2>IP reputation</h2>
-      <p class="note">Used by "Check IP reputation" in a session. Only the attacker's IP is sent; your own IPs and private addresses never are.</p>
-      <label for="s-ab">AbuseIPDB API key</label>
-      <input id="s-ab" type="password" spellcheck="false" aria-describedby="s-ab-state">
-      <p class="note" id="s-ab-state"></p>
-      <label for="s-gn">GreyNoise API key (optional)</label>
-      <input id="s-gn" type="password" spellcheck="false" aria-describedby="s-gn-state">
-      <p class="note" id="s-gn-state"></p>
-      <label class="check"><input id="s-iprep" type="checkbox"> Check attacker IPs automatically (1 a minute, most interesting sessions first)</label>
+      <div class="setmain">
+        <form id="settings-form" class="setform" autocomplete="off">
+          <section class="panel scard settings" id="set-lookups" aria-labelledby="set-lookups-h">
+            <div class="shead">
+              <h2 id="set-lookups-h">Sample lookups</h2>
+              <span class="badge" id="chip-lookups"></span>
+            </div>
+            <p class="note">Used by "Check hash" on captured samples. Only the SHA-256 hash is sent, never the file.
+              Keys stay on this PC in <code>dashboard/data/settings.json</code>.</p>
+            <div class="fields two">
+              <div class="field">
+                <label for="s-vt">VirusTotal API key</label>
+                <input id="s-vt" type="password" spellcheck="false" aria-describedby="s-vt-state">
+                <p class="note" id="s-vt-state"></p>
+              </div>
+              <div class="field">
+                <label for="s-mb">MalwareBazaar Auth-Key (abuse.ch)</label>
+                <input id="s-mb" type="password" spellcheck="false" aria-describedby="s-mb-state">
+                <p class="note" id="s-mb-state"></p>
+              </div>
+            </div>
+            <label class="check"><input id="s-auto" type="checkbox"> Check new samples automatically (4 a minute, VirusTotal's free limit)</label>
+          </section>
 
-      <h2>Forward logs</h2>
-      <p class="note">Sends every new event to your SIEM or log platform after each sync, as one JSON document
-        per event. Only while this dashboard runs; it catches up when you start it again. Turning it on sends
-        new events only, not the history.</p>
-      <label class="check"><input id="s-fw-on" type="checkbox"> Forward new events</label>
-      <label for="s-fw-type">Send to</label>
-      <select id="s-fw-type">
-        <option value="syslog">Syslog (RFC 5424)</option>
-        <option value="elasticsearch">Elasticsearch or OpenSearch (bulk API)</option>
-        <option value="splunk">Splunk (HTTP Event Collector)</option>
-        <option value="http">Any HTTP endpoint (NDJSON POST)</option>
-      </select>
-      <label for="s-fw-addr">Address</label>
-      <input id="s-fw-addr" type="text" spellcheck="false" aria-describedby="s-fw-addr-help">
-      <p class="note" id="s-fw-addr-help"></p>
-      <div class="row" id="s-fw-proto-row">
-        <label for="s-fw-proto">Syslog transport</label>
-        <select id="s-fw-proto">
-          <option value="tcp">TCP</option>
-          <option value="tls">TLS (encrypted)</option>
-          <option value="udp">UDP (events over 60 kB are dropped)</option>
-        </select>
-      </div>
-      <div class="row" id="s-fw-token-row">
-        <label for="s-fw-token" id="s-fw-token-label">Token</label>
-        <input id="s-fw-token" type="password" spellcheck="false" aria-describedby="s-fw-token-state">
-        <p class="note" id="s-fw-token-state"></p>
-      </div>
-      <div class="row" id="s-fw-index-row">
-        <label for="s-fw-index" id="s-fw-index-label">Index</label>
-        <input id="s-fw-index" type="text" spellcheck="false" placeholder="hotpot">
-      </div>
-      <label for="s-fw-sensor">Sensor name (the "sensor" field of every event)</label>
-      <input id="s-fw-sensor" type="text" spellcheck="false" placeholder="hotpot">
-      <label for="s-fw-ca">CA certificate for a private or self-signed certificate (optional: path to a PEM file on this PC)</label>
-      <input id="s-fw-ca" type="text" spellcheck="false">
-      <fieldset class="sources">
-        <legend>Sources</legend>
-        <label class="check"><input type="checkbox" name="fw-src" value="cowrie"> SSH and Telnet (Cowrie)</label>
-        <label class="check"><input type="checkbox" name="fw-src" value="web"> Web honeypot</label>
-        <label class="check"><input type="checkbox" name="fw-src" value="decoys"> Decoy services</label>
-        <label class="check"><input type="checkbox" name="fw-src" value="ids"> Suricata IDS</label>
-        <label class="check"><input type="checkbox" name="fw-src" value="backend"> Real-shell backend</label>
-      </fieldset>
-      <div class="actions">
-        <button type="button" id="s-fw-test">Save and send a test event</button>
-        <span class="note" id="s-fw-state" role="status"></span>
-      </div>
+          <section class="panel scard settings" id="set-iprep" aria-labelledby="set-iprep-h">
+            <div class="shead">
+              <h2 id="set-iprep-h">IP reputation</h2>
+              <span class="badge" id="chip-iprep"></span>
+            </div>
+            <p class="note">Used by "Check IP reputation" in a session. Only the attacker's IP is sent; your own IPs and
+              private addresses never are.</p>
+            <div class="fields two">
+              <div class="field">
+                <label for="s-ab">AbuseIPDB API key</label>
+                <input id="s-ab" type="password" spellcheck="false" aria-describedby="s-ab-state">
+                <p class="note" id="s-ab-state"></p>
+              </div>
+              <div class="field">
+                <label for="s-gn">GreyNoise API key (optional)</label>
+                <input id="s-gn" type="password" spellcheck="false" aria-describedby="s-gn-state">
+                <p class="note" id="s-gn-state"></p>
+              </div>
+            </div>
+            <label class="check"><input id="s-iprep" type="checkbox"> Check attacker IPs automatically (1 a minute, most interesting sessions first)</label>
+          </section>
 
-      <h2>Dashboard</h2>
-      <label for="s-sync">Pull logs every (seconds)</label>
-      <input id="s-sync" type="number" min="15" max="3600" step="1">
-      <label for="s-own">My own IPs, hidden unless "My IP" is on (comma separated)</label>
-      <input id="s-own" type="text" spellcheck="false">
+          <section class="panel scard settings" id="set-forward" aria-labelledby="set-forward-h">
+            <div class="shead">
+              <h2 id="set-forward-h">Forward logs</h2>
+              <span class="badge" id="chip-forward"></span>
+            </div>
+            <p class="note">Sends every new event to your SIEM or log platform after each sync, as one JSON document
+              per event. Only while this dashboard runs; it catches up when you start it again. Turning it on sends
+              new events only, not the history.</p>
+            <label class="check"><input id="s-fw-on" type="checkbox"> Forward new events</label>
+            <div class="fields two">
+              <div class="field">
+                <label for="s-fw-type">Send to</label>
+                <select id="s-fw-type">
+                  <option value="syslog">Syslog (RFC 5424)</option>
+                  <option value="elasticsearch">Elasticsearch or OpenSearch (bulk API)</option>
+                  <option value="splunk">Splunk (HTTP Event Collector)</option>
+                  <option value="http">Any HTTP endpoint (NDJSON POST)</option>
+                </select>
+              </div>
+              <div class="field" id="s-fw-proto-row">
+                <label for="s-fw-proto">Syslog transport</label>
+                <select id="s-fw-proto">
+                  <option value="tcp">TCP</option>
+                  <option value="tls">TLS (encrypted)</option>
+                  <option value="udp">UDP (events over 60 kB are dropped)</option>
+                </select>
+              </div>
+              <div class="field wide">
+                <label for="s-fw-addr">Address</label>
+                <input id="s-fw-addr" type="text" spellcheck="false" aria-describedby="s-fw-addr-help">
+                <p class="note" id="s-fw-addr-help"></p>
+              </div>
+              <div class="field" id="s-fw-token-row">
+                <label for="s-fw-token" id="s-fw-token-label">Token</label>
+                <input id="s-fw-token" type="password" spellcheck="false" aria-describedby="s-fw-token-state">
+                <p class="note" id="s-fw-token-state"></p>
+              </div>
+              <div class="field" id="s-fw-index-row">
+                <label for="s-fw-index" id="s-fw-index-label">Index</label>
+                <input id="s-fw-index" type="text" spellcheck="false" placeholder="hotpot">
+              </div>
+              <div class="field">
+                <label for="s-fw-sensor">Sensor name (the "sensor" field of every event)</label>
+                <input id="s-fw-sensor" type="text" spellcheck="false" placeholder="hotpot">
+              </div>
+              <div class="field">
+                <label for="s-fw-ca">CA certificate (optional: PEM file on this PC)</label>
+                <input id="s-fw-ca" type="text" spellcheck="false" aria-describedby="s-fw-ca-help">
+                <p class="note" id="s-fw-ca-help">For a private CA or a self-signed certificate. Certificates are always checked.</p>
+              </div>
+            </div>
+            <fieldset class="sources">
+              <legend>Sources</legend>
+              <label class="check"><input type="checkbox" name="fw-src" value="cowrie"> SSH and Telnet (Cowrie)</label>
+              <label class="check"><input type="checkbox" name="fw-src" value="web"> Web honeypot</label>
+              <label class="check"><input type="checkbox" name="fw-src" value="decoys"> Decoy services</label>
+              <label class="check"><input type="checkbox" name="fw-src" value="ids"> Suricata IDS</label>
+              <label class="check"><input type="checkbox" name="fw-src" value="backend"> Real-shell backend</label>
+            </fieldset>
+            <div class="fwstats" id="s-fw-stats" hidden>
+              <div class="kv"><span class="note">Sent since start</span><b id="fw-sent">0</b></div>
+              <div class="kv"><span class="note">Rejected</span><b id="fw-rej">0</b></div>
+              <div class="kv"><span class="note">Waiting</span><b id="fw-wait">0</b></div>
+              <div class="kv"><span class="note">Last sent</span><b id="fw-last">never</b></div>
+            </div>
+            <div class="actions">
+              <button type="button" id="s-fw-test">Save and send a test event</button>
+              <span class="note" id="s-fw-state" role="status"></span>
+            </div>
+          </section>
 
-      <div class="actions">
-        <button type="submit" class="primary">Save settings</button>
-        <span class="note" id="settings-msg" role="status"></span>
+          <section class="panel scard settings" id="set-dash" aria-labelledby="set-dash-h">
+            <div class="shead">
+              <h2 id="set-dash-h">Dashboard</h2>
+              <span class="badge" id="chip-dash"></span>
+            </div>
+            <div class="fields two">
+              <div class="field">
+                <label for="s-sync">Pull logs every (seconds)</label>
+                <input id="s-sync" type="number" min="15" max="3600" step="1">
+              </div>
+              <div class="field">
+                <label for="s-own">My own IPs, hidden unless "My IP" is on (comma separated)</label>
+                <input id="s-own" type="text" spellcheck="false">
+              </div>
+            </div>
+          </section>
+
+          <div class="savebar">
+            <button type="submit" class="primary">Save settings</button>
+            <span class="note" id="settings-msg" role="status"></span>
+          </div>
+        </form>
+
+        <section class="panel scard" id="set-deploy" aria-labelledby="set-deploy-h">
+          <div class="shead">
+            <h2 id="set-deploy-h">Deployment</h2>
+            <span class="badge" id="chip-deploy"></span>
+          </div>
+          <p class="note">What <code>honeypot.conf</code> sets up on the VMs. Read-only here: edit the file, then run
+            <code>hotpot deploy</code>.</p>
+          <div id="deploy-body"></div>
+        </section>
+
+        <section class="panel scard" id="set-identity" aria-labelledby="set-identity-h">
+          <div class="shead">
+            <h2 id="set-identity-h">Identity</h2>
+            <span class="badge" id="chip-identity"></span>
+          </div>
+          <p class="note">The made-up company attackers see. Every install gets its own, so the public repo can't be
+            used to spot a HotPot sensor. Shown with <code>hotpot identity</code>; a new one with <code>hotpot identity new</code>,
+            then <code>hotpot deploy</code>.</p>
+          <div id="identity-body"></div>
+        </section>
+
+        <section class="panel scard" id="set-about" aria-labelledby="set-about-h">
+          <div class="shead">
+            <h2 id="set-about-h">About</h2>
+            <span class="badge" id="chip-about"></span>
+          </div>
+          <div id="about-body"></div>
+          <p class="links">
+            <a href="https://github.com/kvviingu/HotPot#readme" target="_blank" rel="noopener noreferrer">Documentation</a>
+            <a href="https://github.com/kvviingu/HotPot/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+            <a href="https://github.com/kvviingu/HotPot/issues/new/choose" target="_blank" rel="noopener noreferrer">Report a bug</a>
+            <a href="https://github.com/kvviingu/HotPot/security/advisories/new" target="_blank" rel="noopener noreferrer">Report a vulnerability</a>
+          </p>
+        </section>
       </div>
-    </form>
+    </div>
   </section>
 
   <footer class="note" id="attribution"></footer>
