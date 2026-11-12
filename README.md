@@ -18,6 +18,21 @@ they break into a server. Attackers find a believable, slightly neglected Ubuntu
 Linux container**, not an emulated shell. Every program they start, every connection they try and every
 file they drop is recorded. Samples stay in a quarantine on the servers.
 
+## About this project
+
+HotPot is a personal project I built to learn how internet threats work: what scanners, botnets,
+human intruders and AI agents actually do once they find an exposed server. I'm not a programmer, so
+most of the code was written with the help of AI (Claude). I designed the setup, ran it on my own
+servers and checked how it behaves, but I didn't write most of it line by line.
+
+The code was reviewed for security problems with Claude Opus 5.5, and the issues it found were fixed.
+That is not a professional audit. HotPot deliberately invites attackers, so read the code and
+[Safety and ethics](#safety-and-ethics) before you run it, and run it only on infrastructure you can
+afford to lose.
+
+**No guarantee or warranty.** HotPot is provided as is, without any warranty (see the
+[licence](LICENSE)). You use it at your own risk and are responsible for what you deploy.
+
 ## Architecture
 
 ```mermaid

@@ -1,5 +1,8 @@
 # Security
 
+HotPot is a personal learning project, mostly written with AI help and reviewed for security with
+Claude Opus 5.5, not by a professional auditor. It comes with no warranty; run it at your own risk.
+
 HotPot deliberately runs vulnerable-looking services. Reports about its *bait* (fake credentials,
 weak-looking passwords, the decoys answering) are expected behaviour, not vulnerabilities.
 
