@@ -49,4 +49,6 @@ jobs:
           set -e
           for f in dashboard/static/*.js; do node --check "$f"; echo "ok  $f"; done
       - name: Compose file is valid
+        env:
+          FRONT_PRIVATE_IP: 10.0.0.15   # placeholder; real installs take it from honeypot.conf
         run: docker compose -f docker-compose.yml config -q
