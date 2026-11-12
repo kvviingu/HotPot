@@ -48,9 +48,9 @@ class RetentionTest(unittest.TestCase):
         with open(p, "w") as f:
             f.write(text)
 
-    def run_it(self, *args, used="10"):
+    def run_it(self, *args, used="10", cwd=None):
         env = dict(os.environ, RETENTION_ROOT=self.root, RETENTION_USED=used)
-        r = subprocess.run(["bash", SCRIPT, *args], env=env, capture_output=True, text=True, timeout=60)
+        r = subprocess.run(["bash", SCRIPT, *args], env=env, capture_output=True, text=True, timeout=60, cwd=cwd)
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout
 
@@ -121,12 +121,30 @@ class RetentionTest(unittest.TestCase):
             f.write("x")
         link = os.path.join(self.root, "var/lib/linked")
         os.symlink(outside, link)
-        r = subprocess.run(["python3", "-I", "-c", code, os.path.join(link, "f")], env=env)
+        dirs = "\n".join([os.path.join(self.root, "var/lib/nb-export"), link])
+        r = subprocess.run(["python3", "-I", "-c", code, os.path.join(link, "f"), dirs], env=env)
         self.assertNotEqual(r.returncode, 0)
         self.assertTrue(os.path.exists(os.path.join(outside, "f")))
         real = os.path.join(self.root, "var/lib/nb-export/backend.jsonl")
-        self.assertEqual(subprocess.run(["python3", "-I", "-c", code, real]).returncode, 0)
+        self.assertNotEqual(subprocess.run(["python3", "-I", "-c", code, real, "/elsewhere"]).returncode, 0)
+        self.assertEqual(subprocess.run(["python3", "-I", "-c", code, real, dirs]).returncode, 0)
         self.assertFalse(os.path.exists(real))
+
+    def test_odd_file_names_cannot_add_records(self):
+        victim = os.path.join(self.root, "etc", "passwd")
+        os.makedirs(os.path.dirname(victim))
+        with open(victim, "w") as f:
+            f.write("x")
+        tty = os.path.join(self.root, "var/lib/docker/volumes/honeypot_cowrie-var/_data/lib/cowrie/tty")
+        evil = os.path.join(tty, "a\n0 1 logs passwd")  # a name can't hold "/", so the smuggled path is relative
+        with open(evil, "w") as f:
+            f.write("x")
+        old = time.time() - 400 * DAY
+        os.utime(evil, (old, old))
+        self.conf("LOG_KEEP_DAYS=1\nSAMPLE_KEEP_DAYS=1\n")
+        self.run_it(used="99", cwd=os.path.dirname(victim))
+        self.assertTrue(os.path.exists(victim))
+        self.assertTrue(os.path.exists(evil))  # not ours to judge: left for a human
 
     def test_report(self):
         self.conf("")

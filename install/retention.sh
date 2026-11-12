@@ -56,6 +56,9 @@ list() {
     d=${glob%/*}
     [ "$(realpath -e -- "$d" 2>/dev/null)" = "$d" ] || continue
     for f in $glob; do
+      # our own services name these files (hashes, dates); anything else, a line break above all,
+      # could smuggle a second record into this list, so it is never considered
+      case "${f##*/}" in *[!A-Za-z0-9._-]*) continue ;; esac
       [ -f "$f" ] && [ ! -L "$f" ] || continue
       stat -c "%Y %s $kind %n" -- "$f"
     done
@@ -66,10 +69,13 @@ list() {
 # relative to the folder before it). This runs as root on files inside container volumes: a link put
 # anywhere on the path between the check above and here makes it refuse instead of deleting elsewhere.
 SAFE_RM='
-import os, stat, sys
-parts = sys.argv[1].split("/")
+import os, re, stat, sys
+path, allowed = sys.argv[1], set(sys.argv[2].split("\n"))
+parts = path.split("/")
 if parts[0] != "" or any(x in ("", ".", "..") for x in parts[1:]):
     sys.exit(2)
+if os.path.dirname(path) not in allowed or not re.fullmatch(r"[A-Za-z0-9._-]{1,255}", parts[-1]):
+    sys.exit(4)  # only files directly in one of the folders listed in CANDIDATES
 fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
 try:
     for name in parts[1:-1]:
@@ -82,12 +88,13 @@ try:
 finally:
     os.close(fd)
 '
+DIRS=$(while read -r _k glob; do [ -n "$glob" ] && echo "${glob%/*}"; done <<< "$CANDIDATES" | sort -u)
 FREED=0; COUNT=0
 remove() {  # mtime bytes kind path
   if [ "$MODE" = dry ]; then
     echo "would delete $3: $4 ($(( $2 / 1024 )) KiB)"
   else
-    python3 -I -c "$SAFE_RM" "$4" 2>/dev/null || { echo "skipped (path changed or has a link): $4" >&2; return; }
+    python3 -I -c "$SAFE_RM" "$4" "$DIRS" 2>/dev/null || { echo "skipped (path changed or has a link): $4" >&2; return; }
   fi
   FREED=$((FREED + $2)); COUNT=$((COUNT + 1))
 }
