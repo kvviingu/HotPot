@@ -1,0 +1,22 @@
+name: Idea or feature request
+description: New bait, a detection, a dashboard view or anything else
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would it help you see or do?
+      description: The question you're trying to answer about attackers, or the chore you'd like gone.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: How it could work. For new bait, say how it stays harmless.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Traffic that motivates it (optional)
+      description: Anonymised examples from your own sensor.
+      render: text

@@ -1,0 +1,44 @@
+name: Bug report
+description: Something in HotPot doesn't work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems in HotPot itself go through SECURITY.md, not here.
+        Please remove IP addresses, keys and passwords from anything you paste.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output or logs
+      description: Relevant `hotpot` output, or lines from /var/log/hotpot-install.log on the VM.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: HotPot version
+      description: Output of `hotpot version`.
+    validations:
+      required: true
+  - type: dropdown
+    id: layout
+    attributes:
+      label: Setup
+      options:
+        - One VM (emulated shell)
+        - Two VMs (real-shell backend)
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: Cloud provider, VM OS and architecture, and the OS you run hotpot on.
+      placeholder: Oracle Cloud, Ubuntu 24.04 amd64; hotpot on Windows 11

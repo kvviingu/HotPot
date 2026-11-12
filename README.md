@@ -1,6 +1,16 @@
 # HotPot
 
+[![CI](https://github.com/kvviingu/HotPot/actions/workflows/ci.yml/badge.svg)](https://github.com/kvviingu/HotPot/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/kvviingu/HotPot)](https://github.com/kvviingu/HotPot/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776ab)
+![Runs on](https://img.shields.io/badge/operator-Linux%20%7C%20macOS%20%7C%20Windows-555)
+![VMs](https://img.shields.io/badge/sensor-Ubuntu%2024.04-e95420)
+
+**A research honeypot that catches bots, human attackers and autonomous AI agents in a real shell,
+and shows you what they did on a local threat-intel dashboard.**
+
+<p align="center"><img src="docs/images/overview.png" alt="HotPot dashboard overview: activity, world map of attackers, actor classes" width="900"></p>
 
 HotPot is a research honeypot for watching what bots, human attackers and autonomous AI agents do after
 they break into a server. Attackers find a believable, slightly neglected Ubuntu 24.04 file server
@@ -99,6 +109,12 @@ Plain-text version:
 * Local dashboard with tabs Overview, Sessions, Traps, Statistics, Intel, Samples, Report, Status and
   Settings. The Overview map zooms by region and colours each place by how far its sessions got. Statistics compares each period with the one before it (trends, heatmap, funnels,
   distributions, ATT&CK grid, rising and falling items, CSV export).
+
+## Screenshots
+
+| Statistics | Session detail |
+|---|---|
+| <img src="docs/images/statistics.png" alt="Statistics tab: top credentials, commands, paths and funnels" width="440"> | <img src="docs/images/session.png" alt="Session detail: commands typed, programs run and files dropped" width="440"> |
 
 ## Quick start
 
@@ -202,6 +218,8 @@ yara/rules/             YARA rules pushed to both VMs
 dashboard/              local dashboard (stdlib Python + vanilla JS, no CDN)
 secrets/                example env file for the OpenRouter key
 docs/                   setup, configuration, operations, design notes
+tests/                  unit tests (python -m unittest discover -s tests)
+.github/                CI workflow, issue and pull request templates
 ```
 
 ## Safety and ethics
@@ -234,8 +252,8 @@ Read [docs/operations.md](docs/operations.md) before you handle samples.
 
 ## Contributing and security
 
-Issues and pull requests are welcome; see [CHANGELOG.md](CHANGELOG.md) for what changed between
-releases. Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.md), not in a
+Issues and pull requests are welcome: start with [CONTRIBUTING.md](CONTRIBUTING.md) (setup, tests, ground
+rules), and see [CHANGELOG.md](CHANGELOG.md) for what changed between releases. Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.md), not in a
 public issue.
 
 ## Licence
