@@ -119,8 +119,13 @@ def unhex(v):
         return v
 
 
+MAX_AUDIT_READ = 4 << 20   # bytes of audit log per run: a busy miner writes megabytes a minute, and reading it
+                           # all at once took this 1 GB host out of memory. The rest is read on the next runs.
+
+
 def audit_lines(st):
-    """New lines since the saved (inode, offset), following auditd's rotation (audit.log -> audit.log.1)."""
+    """New lines since the saved (inode, offset), following auditd's rotation (audit.log -> audit.log.1),
+    at most MAX_AUDIT_READ bytes per run."""
     cur = st.get("audit", {})
     files = []
     for name in ["audit.log"] + [f"audit.log.{i}" for i in range(1, 20)]:
@@ -133,15 +138,21 @@ def audit_lines(st):
     idx = next((i for i, (_, n) in enumerate(files) if n == ino), None)
     if idx is None:                       # first run (or we fell behind a full rotation): start at the live file
         idx, off = 0, 0 if ino is None else 0
+    budget = MAX_AUDIT_READ
     for i in range(idx, -1, -1):          # older file with our inode first, then newer ones
         p, n = files[i]
+        start = off if n == ino else 0
         with open(p, "rb") as f:
-            f.seek(off if n == ino else 0)
-            data = f.read()
+            size = os.fstat(f.fileno()).st_size
+            f.seek(start)
+            data = f.read(max(budget, 0))
         end = data.rfind(b"\n") + 1
         for line in data[:end].splitlines():
             yield line.decode("utf-8", "replace")
-        st["audit"] = {"ino": n, "off": (off if n == ino else 0) + end}
+        st["audit"] = {"ino": n, "off": start + end}
+        budget -= end
+        if start + end < size:            # this file is not finished: go on from here next run
+            break
 
 
 def parse_audit(st, out):

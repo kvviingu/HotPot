@@ -6,5 +6,8 @@ After=incus.service auditd.service
 Type=oneshot
 ExecStart=/usr/bin/python3 -I /usr/local/sbin/nb-collect.py
 Nice=10
+# A run that grows too big is killed on its own instead of taking the host (and sshd) down with it
+MemoryHigh=150M
+MemoryMax=200M
 IOSchedulingClass=idle
 TimeoutStartSec=50
