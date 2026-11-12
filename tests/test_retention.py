@@ -91,6 +91,43 @@ class RetentionTest(unittest.TestCase):
         left = {os.path.basename(p) for p in self.left()}
         self.assertEqual(left, {"cowrie.json", "web.jsonl", "backend.jsonl", "c" * 64 + ".bin"})
 
+    def test_links_are_never_followed(self):
+        """A compromised Cowrie could swap one of its folders for a link to /etc: nothing outside goes."""
+        outside = os.path.join(self.root, "etc")
+        os.makedirs(outside)
+        victim = os.path.join(outside, "important")
+        with open(victim, "w") as f:
+            f.write("x")
+        old = time.time() - 400 * DAY
+        os.utime(victim, (old, old))
+        tty = os.path.join(self.root, "var/lib/docker/volumes/honeypot_cowrie-var/_data/lib/cowrie/tty")
+        shutil.rmtree(tty)
+        os.symlink(outside, tty)
+        dl = os.path.join(self.root, "var/lib/docker/volumes/honeypot_cowrie-var/_data/lib/cowrie/downloads")
+        os.makedirs(dl)
+        os.symlink(victim, os.path.join(dl, "evil"))
+        self.conf("LOG_KEEP_DAYS=1\nSAMPLE_KEEP_DAYS=1\n")
+        self.run_it(used="99")
+        self.assertTrue(os.path.exists(victim))
+
+    def test_safe_delete_refuses_a_link_swapped_in_late(self):
+        """The deletion itself re-checks every folder, in case a link appears after the listing."""
+        env = dict(os.environ, RETENTION_ROOT=self.root)
+        script = open(SCRIPT).read()
+        code = script.split("SAFE_RM='", 1)[1].split("'\n", 1)[0]
+        outside = os.path.join(self.root, "elsewhere")
+        os.makedirs(outside)
+        with open(os.path.join(outside, "f"), "w") as f:
+            f.write("x")
+        link = os.path.join(self.root, "var/lib/linked")
+        os.symlink(outside, link)
+        r = subprocess.run(["python3", "-I", "-c", code, os.path.join(link, "f")], env=env)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertTrue(os.path.exists(os.path.join(outside, "f")))
+        real = os.path.join(self.root, "var/lib/nb-export/backend.jsonl")
+        self.assertEqual(subprocess.run(["python3", "-I", "-c", code, real]).returncode, 0)
+        self.assertFalse(os.path.exists(real))
+
     def test_report(self):
         self.conf("")
         out = self.run_it("--report")

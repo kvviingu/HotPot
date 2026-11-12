@@ -72,6 +72,7 @@ setup_sites() {
 # ---- data retention -----------------------------------------------------------------------------------
 # daily hotpot-retention.timer: old logs, recordings, harvests and samples (install/retention.sh)
 install_retention() {
+  command -v python3 >/dev/null || pkg_install python3   # deletes without following links
   install -m 750 "$LIB_DIR/retention.sh" /usr/local/sbin/hotpot-retention
   cat > /etc/systemd/system/hotpot-retention.service <<UNIT
 [Unit]

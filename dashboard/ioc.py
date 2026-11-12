@@ -43,7 +43,7 @@ def global_ip(v) -> str:
     return str(ip) if ip.is_global else ""
 
 
-def clean_url(raw, local_names=()) -> str:
+def clean_url(raw, local_names=(), own=()) -> str:
     """The URL if it is http(s)/ftp/tftp with a public host, else ""."""
     u = str(raw or "").strip().rstrip(".,")[:500]
     try:
@@ -53,7 +53,7 @@ def clean_url(raw, local_names=()) -> str:
         return ""
     if p.scheme.lower() not in ("http", "https", "ftp", "tftp") or not host:
         return ""
-    if not (global_ip(host) or public_domain(host, local_names)):
+    if host in own or global_ip(host) in own or not (global_ip(host) or public_domain(host, local_names)):
         return ""
     if any(ord(c) < 33 or ord(c) == 127 for c in u):
         return ""
@@ -103,7 +103,7 @@ def collect(sessions, samples, own=(), since_ms=0, only_engaged=False, local_nam
             r["tech"].update(x.get("tech") or ())
             if x.get("campaign"):
                 r["campaigns"].add(str(x["campaign"])[:40])
-            if kind != "ip" and global_ip(x.get("ip")):
+            if kind != "ip" and global_ip(x.get("ip")) and x["ip"] not in own:
                 r["ips"].add(x["ip"])
         if note and not r["note"]:
             r["note"] = note
@@ -131,7 +131,7 @@ def collect(sessions, samples, own=(), since_ms=0, only_engaged=False, local_nam
                 for m in URL_IN_TEXT.findall(str(e.get("input") or "")[:MAX_CMD]):
                     urls.append((m, e.get("t"), "in a command line"))
         for raw, t, note in urls:
-            u = clean_url(raw, local_names)
+            u = clean_url(raw, local_names, own)
             if u:
                 add("url", u, x, t, note)
                 add("domain", public_domain(urlsplit(u).hostname, local_names), x, t)
@@ -147,7 +147,8 @@ def collect(sessions, samples, own=(), since_ms=0, only_engaged=False, local_nam
                 (r.get("how") or "captured") + (f" ({names})" if names else ""))
             rec = out["sha256"][r["sha"]]
             rec["sessions"] = len(r.get("sessions", ()))
-            rec["ips"].update(v["ip"] for v in r.get("sessions", ()) if global_ip(v.get("ip")))
+            rec["ips"].update(v["ip"] for v in r.get("sessions", ())
+                              if global_ip(v.get("ip")) and not v.get("own") and v["ip"] not in own)
             rec["yara"] = [y.get("rule") for y in r.get("yara", ()) if y.get("rule")]
             rec["size"] = r.get("size")
     if geo_of:

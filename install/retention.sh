@@ -52,6 +52,9 @@ list() {
   now=$(date +%s)
   while read -r kind glob; do
     [ -n "$kind" ] || continue
+    # a folder replaced by a link (say by a compromised Cowrie) is skipped, never followed
+    d=${glob%/*}
+    [ "$(realpath -e -- "$d" 2>/dev/null)" = "$d" ] || continue
     for f in $glob; do
       [ -f "$f" ] && [ ! -L "$f" ] || continue
       stat -c "%Y %s $kind %n" -- "$f"
@@ -59,12 +62,32 @@ list() {
   done <<< "$CANDIDATES" | awk -v cut=$((now - 3600)) '$1 < cut' | sort -n
 }
 
+# Deletes one regular file, opening every folder on its path without following links (O_NOFOLLOW,
+# relative to the folder before it). This runs as root on files inside container volumes: a link put
+# anywhere on the path between the check above and here makes it refuse instead of deleting elsewhere.
+SAFE_RM='
+import os, stat, sys
+parts = sys.argv[1].split("/")
+if parts[0] != "" or any(x in ("", ".", "..") for x in parts[1:]):
+    sys.exit(2)
+fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+try:
+    for name in parts[1:-1]:
+        nfd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+        os.close(fd)
+        fd = nfd
+    if not stat.S_ISREG(os.stat(parts[-1], dir_fd=fd, follow_symlinks=False).st_mode):
+        sys.exit(3)
+    os.unlink(parts[-1], dir_fd=fd)
+finally:
+    os.close(fd)
+'
 FREED=0; COUNT=0
 remove() {  # mtime bytes kind path
   if [ "$MODE" = dry ]; then
     echo "would delete $3: $4 ($(( $2 / 1024 )) KiB)"
   else
-    rm -f -- "$4" || return
+    python3 -I -c "$SAFE_RM" "$4" 2>/dev/null || { echo "skipped (path changed or has a link): $4" >&2; return; }
   fi
   FREED=$((FREED + $2)); COUNT=$((COUNT + 1))
 }

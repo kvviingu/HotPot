@@ -59,6 +59,16 @@ class CollectTest(unittest.TestCase):
         d = collect(only_engaged=True)
         self.assertEqual(set(d["ip"]), {"45.155.205.10", "91.92.240.17"})   # s5 tripped a lure
 
+    def test_own_addresses_never_leak(self):
+        ss = sessions()
+        ss[0]["_events"].append({"eventid": "cowrie.command.input", "t": T,
+                                 "input": "wget http://8.8.4.4/x; curl http://8.8.4.4:8080/y"})
+        samples = [dict(SAMPLES[0], sessions=[{"id": "s1", "ip": "45.155.205.10"},
+                                              {"id": "s3", "ip": "8.8.4.4", "own": True}])]
+        d = ioc.collect(ss, samples, own={"8.8.4.4"}, local_names=["fileserver01"])
+        blob = ioc.to_csv(d) + ioc.to_stix(d, now_ms=T) + ioc.to_misp(d, now_ms=T)
+        self.assertNotIn("8.8.4.4", blob)
+
     def test_since(self):
         self.assertEqual(collect(since_ms=T + 100)["ip"], {})
 
