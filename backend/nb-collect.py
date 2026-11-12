@@ -119,46 +119,85 @@ def unhex(v):
         return v
 
 
-MAX_AUDIT_READ = 4 << 20   # bytes of audit log per run: a busy miner writes megabytes a minute, and reading it
-                           # all at once took this 1 GB host out of memory. The rest is read on the next runs.
+AUDIT_CHUNK = 4 << 20      # audit log is read and parsed this many bytes at a time, so memory stays small
+AUDIT_TIME = 30            # seconds per run spent on the audit log; the rest waits for the next run
+SERIAL = re.compile(rb"msg=audit\(\d+\.\d+:(\d+)\)")
 
 
-def audit_lines(st):
-    """New lines since the saved (inode, offset), following auditd's rotation (audit.log -> audit.log.1),
-    at most MAX_AUDIT_READ bytes per run."""
+def audit_chunks(st):
+    """Lists of new lines since the saved (inode, offset), following auditd's rotation (audit.log ->
+    audit.log.1), at most AUDIT_CHUNK bytes each. A chunk never ends inside an event: its last event
+    (whose records may continue past the cut) is left for the next chunk. A busy miner writes megabytes
+    a minute; reading it all at once once took the 1 GB host out of memory."""
     cur = st.get("audit", {})
     files = []
     for name in ["audit.log"] + [f"audit.log.{i}" for i in range(1, 20)]:
-        p = os.path.join(AUDIT_DIR, name)
+        path = os.path.join(AUDIT_DIR, name)
         try:
-            files.append((p, os.stat(p).st_ino))
+            files.append((path, os.stat(path).st_ino))
         except OSError:
             pass
     ino, off = cur.get("ino"), cur.get("off", 0)
     idx = next((i for i, (_, n) in enumerate(files) if n == ino), None)
-    if idx is None:                       # first run (or we fell behind a full rotation): start at the live file
-        idx, off = 0, 0 if ino is None else 0
-    budget = MAX_AUDIT_READ
+    if idx is None:
+        if ino is not None:               # fell behind a full rotation: say so, those events are gone
+            print(f"nb-collect: WARNING audit log rotated past our position (inode {ino}); "
+                  "events in between were not collected", flush=True)
+        idx = len(files) - 1 if ino is not None and files else 0
+        off = 0
+    deadline = time.monotonic() + AUDIT_TIME
     for i in range(idx, -1, -1):          # older file with our inode first, then newer ones
-        p, n = files[i]
+        path, n = files[i]
         start = off if n == ino else 0
-        with open(p, "rb") as f:
-            size = os.fstat(f.fileno()).st_size
-            f.seek(start)
-            data = f.read(max(budget, 0))
-        end = data.rfind(b"\n") + 1
-        for line in data[:end].splitlines():
-            yield line.decode("utf-8", "replace")
-        st["audit"] = {"ino": n, "off": start + end}
-        budget -= end
-        if start + end < size:            # this file is not finished: go on from here next run
-            break
+        while True:
+            with open(path, "rb") as f:
+                size = os.fstat(f.fileno()).st_size
+                f.seek(start)
+                data = f.read(AUDIT_CHUNK)
+            end = data.rfind(b"\n") + 1
+            if start + end < size or i == 0:
+                # more follows (or the live file may still be writing): stop before the last event
+                last = data.rfind(b"\n", 0, end - 1) + 1
+                m = SERIAL.search(data, last, end)
+                if m:
+                    tail = data[:end]
+                    cut = last
+                    while cut > 0:
+                        prev = tail.rfind(b"\n", 0, cut - 1) + 1
+                        pm = SERIAL.search(tail, prev, cut)
+                        if not pm or pm.group(1) != m.group(1):
+                            break
+                        cut = prev
+                    if cut > 0:
+                        end = cut
+            if end:
+                yield [ln.decode("utf-8", "replace") for ln in data[:end].splitlines()]
+            st["audit"] = {"ino": n, "off": start + end}
+            start += end
+            if not end or start >= size:
+                break
+            if time.monotonic() > deadline:
+                return
+        if start < size:                  # this file is not finished: go on from here next run
+            return
 
 
 def parse_audit(st, out):
+    urls = []
+    for lines in audit_chunks(st):
+        urls += parse_chunk(st, out, lines)
+    procs, roots = st.get("procs", {}), st.get("roots", {})
+    if len(procs) > 30000:                 # pids recycle; keep the newest entries
+        st["procs"] = dict(list(procs.items())[-20000:])
+    if len(roots) > 5000:
+        st["roots"] = dict(list(roots.items())[-3000:])
+    return urls
+
+
+def parse_chunk(st, out, lines):
     events = {}
     order = []
-    for line in audit_lines(st):
+    for line in lines:
         line = line.split("\x1d", 1)[0]
         m = re.match(r"type=(\w+) msg=audit\((\d+)\.(\d+):(\d+)\): ?(.*)", line)
         if not m:
@@ -231,10 +270,6 @@ def parse_audit(st, out):
                 out.write({"type": "conn", "t": ev["t"], "root": root, "pid": int(pid or 0),
                            "uid": uid - UID_BASE, "exe": unhex(sc.get("exe", '""'))[:300], "dst": dst,
                            "ok": sc.get("success") == "yes" or sc.get("exit") == "-115"})
-    if len(procs) > 30000:                 # pids recycle; keep the newest entries
-        st["procs"] = dict(list(procs.items())[-20000:])
-    if len(roots) > 5000:
-        st["roots"] = dict(list(roots.items())[-3000:])
     return urls
 
 
