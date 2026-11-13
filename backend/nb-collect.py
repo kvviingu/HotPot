@@ -443,9 +443,11 @@ def capture_files(st, out, init_pid):
                     if not keep_version(st, path, s.st_mode, dst, init_pid):
                         if new:
                             os.unlink(dst)
-                        if st["versions"]["n"].get(path) == VERSIONS_PER_FILE + 1:
-                            out.write({"type": "file_capped", "t": now_ms(), "path": path[:500],
-                                       "kept": VERSIONS_PER_FILE})
+                        # the content is dropped but its hash is still logged, and the nightly harvest
+                        # keeps the file's final state, so an attacker can't hide a change by churning first
+                        out.write({"type": "file_capped", "t": now_ms(), "path": path[:500], "sha256": sha,
+                                   "size": n, "mode": oct(s.st_mode & 0o7777), "uid": s.st_uid - UID_BASE,
+                                   "ctime": int(s.st_ctime * 1000), "kept": VERSIONS_PER_FILE})
                         continue
                     out.write({"type": "file", "t": now_ms(), "src": "disk", "path": path[:500], "sha256": sha,
                                "size": n, "mode": oct(s.st_mode & 0o7777), "uid": s.st_uid - UID_BASE,
