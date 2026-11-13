@@ -13,6 +13,10 @@ prints the one you have.
   `SAMPLE_KEEP_DAYS` and `DISK_MAX_PERCENT`, and a `hotpot cleanup` command. The web honeypot now
   rotates `web.jsonl` at 64 MB, and the backend's event log gets a new name at each rotation so the
   dashboard's copy of an older one is never overwritten.
+* **Reporting to AbuseIPDB** from Settings: attackers that guessed passwords, went for bait or touched
+  a decoy's data, each at most once a day, with a preview of what would be sent.
+* **Backend memory:** a 2 GB swap file on the backend VM and a 448 MiB default for the container, with
+  no swap of its own, after a miner in the container made the VM run out of memory.
 * **Settings** is grouped into cards with a side menu and a status chip per card, and now also shows
   what `honeypot.conf` deploys (features, VMs, decoys, LLM fallback, clean-up), the decoy identity with
   a warning while it is still the public reference one, and an About card with version and data size.

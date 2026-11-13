@@ -144,6 +144,29 @@ counting (RFC 6587), and UDP drops events over 60 kB.
   keys and is never shown again in full.
 * **"Save and send a test event"** sends one event with `source: "hotpot"`.
 
+## Reporting to AbuseIPDB
+
+Settings, **Report attackers to AbuseIPDB**, shares attacker IPs with
+[AbuseIPDB](https://www.abuseipdb.com)'s public database. It uses the AbuseIPDB key from IP
+reputation; any AbuseIPDB key can report, and the free plan takes 1,000 reports a day.
+
+* **Who is reported:** public IPs that guessed SSH or Telnet passwords (category Brute-force, plus SSH or
+  IoT targeted, plus Hacking when they ran commands), read a web bait file or tried a web login (Web app
+  attack, Bad web bot, Brute-force), or read, changed, ran code on or logged in to a decoy (Port scan,
+  plus Brute-force or Hacking). A bare handshake with a decoy is not reported: most of those are
+  internet-wide scanners, research ones included.
+* **Never reported:** your own IPs, the VMs' addresses, private addresses, and IPs that GreyNoise
+  calls benign or RIOT (only known for IPs you have looked up).
+* **What a report holds:** the IP, the categories, the time of the last activity and a fixed comment such
+  as `Honeypot: SSH password guessing (12 login attempts).` Nothing the attacker typed and nothing about
+  this install goes into a report.
+* **How often:** each IP at most once a day, and only for activity newer than its last report. A run
+  sends at most 60; the dashboard stops at 900 a day.
+* **"See what would be sent"** lists the waiting reports. **"Report now"** asks first, then sends.
+  "Report new attackers automatically" sends every 15 minutes while the dashboard runs. Reports are
+  public and can only be removed on AbuseIPDB's site.
+* What was reported is kept in `dashboard/data/abuse_reports.json` (IP and time, for 30 days).
+
 ## Replay
 
 SSH and Telnet sessions play back from Cowrie's ttylogs, fetched on demand and cached in

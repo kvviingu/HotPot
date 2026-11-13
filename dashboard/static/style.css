@@ -420,6 +420,11 @@ pre { margin: 4px 0 0; padding: 8px 10px; background: var(--sunk); border-radius
 .callout { margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-size: 13px; border: 1px solid color-mix(in srgb, var(--c-agent_suspected) 55%, transparent);
   background: color-mix(in srgb, var(--c-agent_suspected) 10%, transparent); color: var(--ink); }
 .callout code { font-family: var(--f-mono); font-size: 12px; }
+.ab-preview { margin-top: 10px; }
+.ab-preview summary { cursor: pointer; font-size: 13px; color: var(--accent); }
+.ab-preview .tablewrap { max-height: 340px; overflow: auto; margin-top: 8px; }
+.ab-preview td { font-size: 12.5px; }
+.ab-preview td:first-child { white-space: nowrap; }
 .links { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--hair); font-size: 13px; }
 .links a { color: var(--accent); text-decoration: none; }
 .links a:hover { text-decoration: underline; }

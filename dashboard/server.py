@@ -41,6 +41,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import parse_qs, urlencode, urlparse
 
+import abuse
 import forward
 import geo
 import ioc
@@ -64,6 +65,7 @@ CONFIG_PATH = os.path.join(BASE, "config.json")
 STATE_PATH = os.path.join(DATA, "sync_state.json")
 SETTINGS_PATH = os.path.join(DATA, "settings.json")
 FORWARD_STATE = os.path.join(DATA, "forward_state.json")
+ABUSE_STATE = os.path.join(DATA, "abuse_reports.json")
 LOOKUPS_PATH = os.path.join(DATA, "lookups.json")
 
 DEFAULT_CONFIG = {
@@ -289,6 +291,7 @@ def settings_view() -> dict:
     out["own_ips"] = list(CFG.get("own_ips", []))
     out["forward"] = forward.view(SETTINGS.get("forward") or {})
     out["forward_status"] = FORWARDER.status
+    out["abuse_auto"] = bool(SETTINGS.get("abuse_auto", False))
     return out
 
 
@@ -371,7 +374,7 @@ def save_settings(req: dict) -> dict:
                     SETTINGS[k] = v
                 else:
                     SETTINGS.pop(k, None)
-        for k in ("auto_lookup", "auto_iprep"):
+        for k in ("auto_lookup", "auto_iprep", "abuse_auto"):
             if k in req:
                 SETTINGS[k] = bool(req[k])
         if isinstance(req.get("forward"), dict):
@@ -1204,6 +1207,46 @@ def run_forward() -> None:
         FORWARDER.run(fc, MIRROR, own_ips=CFG.get("own_ips", []), deadline=30)
     except Exception as e:  # never let a destination problem stop the sync loop
         FORWARDER.status["error"] = f"{type(e).__name__}: {e}"[:300]
+
+
+REPORTER = abuse.Reporter(ABUSE_STATE)
+
+
+def abuse_plan() -> list:
+    """What a report run would send now (dashboard/abuse.py decides who qualifies)."""
+    with lock:
+        sessions = MODEL["sessions"]
+    own = own_set()
+    conf = hotpot_conf()
+    own.ips.update(v for v in (CFG.get("ssh_host", ""), conf.get("FRONT_PUBLIC_IP", ""),
+                               conf.get("FRONT_PRIVATE_IP", ""), conf.get("BACKEND_IP", "")) if v)
+    # GreyNoise "benign" (research scanners) and RIOT (common services): never reported
+    benign = {ip for ip, r in list(IPREP.items()) if (r.get("gn") or {}).get("riot")
+              or (r.get("gn") or {}).get("class") == "benign"}
+    return abuse.plan(sessions, own=own, reported=REPORTER.state["ips"], benign=benign)
+
+
+def abuse_view() -> dict:
+    items = abuse_plan()
+    return {"key_set": bool(SETTINGS.get("abuseipdb_api_key")), "auto": bool(SETTINGS.get("abuse_auto")),
+            "status": REPORTER.view(), "pending": len(items), "per_run": abuse.PER_RUN,
+            "preview": [{"ip": r["ip"], "categories": [abuse.CATEGORY_NAMES.get(c, str(c)) for c in r["categories"]],
+                         "comment": r["comment"], "last": r["last"], "sessions": r["sessions"]} for r in items[:40]]}
+
+
+def run_abuse() -> None:
+    try:
+        REPORTER.run(SETTINGS.get("abuseipdb_api_key", ""), abuse_plan())
+    except Exception as e:  # shown in Settings
+        REPORTER.status["error"] = f"{type(e).__name__}: {e}"[:300]
+
+
+def abuse_loop() -> None:
+    """With "abuse_auto" on, report new attackers every 15 minutes (each IP at most once a day)."""
+    while True:
+        time.sleep(900)
+        if SETTINGS.get("abuse_auto") and SETTINGS.get("abuseipdb_api_key") and MODEL["built"]:
+            run_abuse()
 
 
 def sync_loop() -> None:
@@ -3741,6 +3784,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(vm_status(q.get("force", ["0"])[0] == "1"))
         if u.path == "/api/settings":
             return self.send_json(settings_view())
+        if u.path == "/api/abuse":
+            return self.send_json(abuse_view())
         if u.path == "/api/about":
             return self.send_json(about_view())
         if u.path == "/api/ioc":
@@ -3841,6 +3886,14 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
+        if urlparse(self.path).path == "/api/abuse-report":
+            if not SETTINGS.get("abuseipdb_api_key"):
+                return self.send_json({"error": "add an AbuseIPDB key in Settings first"}, 400)
+            if REPORTER.status["running"]:
+                return self.send_json({"started": False, "busy": True})
+            REPORTER.status["running"] = True  # shown at once; run() sets it again
+            threading.Thread(target=run_abuse, daemon=True).start()
+            return self.send_json({"started": True})
         if urlparse(self.path).path == "/api/sync":
             threading.Thread(target=sync_once, daemon=True).start()
             return self.send_json({"started": True})
@@ -3886,6 +3939,7 @@ def main() -> None:
     threading.Thread(target=sync_loop, daemon=True).start()
     threading.Thread(target=lookup_loop, daemon=True).start()
     threading.Thread(target=iprep_loop, daemon=True).start()
+    threading.Thread(target=abuse_loop, daemon=True).start()
     threading.Thread(target=scan_loop, daemon=True).start()
     threading.Thread(target=report_loop, daemon=True).start()
     port = int(os.environ.get("PORT") or CFG.get("port", 8787))

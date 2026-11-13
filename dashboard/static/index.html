@@ -399,6 +399,7 @@
         <button type="button" data-sec="set-lookups">Sample lookups <span class="n" id="nav-lookups"></span></button>
         <button type="button" data-sec="set-iprep">IP reputation <span class="n" id="nav-iprep"></span></button>
         <button type="button" data-sec="set-forward">Forward logs <span class="n" id="nav-forward"></span></button>
+        <button type="button" data-sec="set-report">Report attackers <span class="n" id="nav-report"></span></button>
         <button type="button" data-sec="set-dash">Dashboard <span class="n" id="nav-dash"></span></button>
         <h3>On the VMs</h3>
         <button type="button" data-sec="set-deploy">Deployment <span class="n" id="nav-deploy"></span></button>
@@ -520,6 +521,38 @@
             <div class="actions">
               <button type="button" id="s-fw-test">Save and send a test event</button>
               <span class="note" id="s-fw-state" role="status"></span>
+            </div>
+          </section>
+
+          <section class="panel scard settings" id="set-report" aria-labelledby="set-report-h">
+            <div class="shead">
+              <h2 id="set-report-h">Report attackers to AbuseIPDB</h2>
+              <span class="badge" id="chip-report"></span>
+            </div>
+            <p class="note">Shares attacker IPs with AbuseIPDB's public database, so others can block them. Uses the
+              AbuseIPDB key above. Reported: IPs that guessed SSH or Telnet passwords, went for web bait files or logins,
+              or read, changed or logged in to a decoy. Never your own IPs, private addresses or scanners GreyNoise calls
+              benign. Each IP at most once a day.</p>
+            <p class="note">A report holds the IP, categories, the time and a fixed comment such as "Honeypot: SSH
+              password guessing (12 attempts)". Nothing the attacker typed and nothing about this install. Reports are
+              public and can't be taken back from here.</p>
+            <label class="check"><input id="s-ab-auto" type="checkbox"> Report new attackers automatically (every 15 minutes, up to 900 a day)</label>
+            <div class="fwstats" id="ab-stats">
+              <div class="kv"><span class="note">Waiting to be reported</span><b id="ab-pending">–</b></div>
+              <div class="kv"><span class="note">Reported today</span><b id="ab-today">–</b></div>
+              <div class="kv"><span class="note">Reported in total</span><b id="ab-total">–</b></div>
+              <div class="kv"><span class="note">Last run</span><b id="ab-last">never</b></div>
+            </div>
+            <details class="ab-preview" id="ab-preview">
+              <summary>See what would be sent</summary>
+              <div class="tablewrap"><table>
+                <thead><tr><th>IP</th><th>Categories</th><th>Comment</th><th>Last seen</th></tr></thead>
+                <tbody id="ab-rows"></tbody>
+              </table></div>
+            </details>
+            <div class="actions">
+              <button type="button" id="ab-send">Report now</button>
+              <span class="note" id="ab-state" role="status"></span>
             </div>
           </section>
 

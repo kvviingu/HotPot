@@ -1332,7 +1332,9 @@ async function loadSettings() {
   setChip("iprep", ab ? "AbuseIPDB" + (gn ? " and GreyNoise" : "") + (st.auto_iprep ? ", automatic" : "") : gn ? "GreyNoise only" : "No keys",
     ab ? "ok" : "muted", `${(ab ? 1 : 0) + (gn ? 1 : 0)}/2`);
   setChip("dash", `Every ${st.sync_seconds} s`, "muted", st.sync_seconds + " s");
+  $("s-ab-auto").checked = st.abuse_auto;
   loadAbout();
+  loadAbuse();
 }
 
 // A status label on each Settings card, and a short copy of it in the side menu.
@@ -1492,6 +1494,57 @@ function fwBody() {
 }
 $("s-fw-type").addEventListener("change", fwTypeChanged);
 
+// ---- reporting to AbuseIPDB (Settings) ----------------------------------------------------------
+let abusePending = 0;
+async function loadAbuse() {
+  let a;
+  try { a = await (await fetch("/api/abuse")).json(); } catch (e) { return; }
+  const s = a.status;
+  abusePending = a.pending;
+  $("ab-pending").textContent = fmtN(a.pending);
+  $("ab-today").textContent = `${fmtN(s.today)} of ${fmtN(s.cap)}`;
+  $("ab-total").textContent = fmtN(s.total);
+  $("ab-last").textContent = s.running ? "running…" : s.last_run ? `${fmtAgo(s.last_run)}, ${fmtN(s.sent)} sent` : "never";
+  const rows = $("ab-rows");
+  clear(rows);
+  for (const r of a.preview) {
+    const tr = el("tr");
+    tr.append(el("td", "mono", r.ip), el("td", "", r.categories.join(", ")), el("td", "", r.comment), el("td", "", fmtAgo(r.last)));
+    rows.append(tr);
+  }
+  if (a.pending > a.preview.length) {
+    const tr = el("tr");
+    const td = el("td", "note", `and ${fmtN(a.pending - a.preview.length)} more`);
+    td.colSpan = 4;
+    tr.append(td);
+    rows.append(tr);
+  }
+  $("ab-send").disabled = !a.key_set || !a.pending || s.running;
+  $("ab-state").textContent = !a.key_set ? "Add an AbuseIPDB key above first." : s.error ? "Last error: " + s.error : "";
+  if (!a.key_set) setChip("report", "No key", "muted", "off");
+  else if (s.error) setChip("report", "Error", "bad", "error");
+  else if (a.auto) setChip("report", "Automatic", "ok", "auto");
+  else setChip("report", "By hand", "muted", "manual");
+  if (s.running) setTimeout(loadAbuse, 3000);
+}
+$("ab-send").addEventListener("click", async () => {
+  const n = Math.min(abusePending, 60);
+  if (!confirm(`Report ${n} attacker IP${n === 1 ? "" : "s"} to AbuseIPDB now?\n\nReports are public and can't be taken back from here.`)) return;
+  $("ab-send").disabled = true;
+  try {
+    await postJSON("/api/abuse-report", {});
+    $("ab-state").textContent = "Reporting…";
+    setTimeout(loadAbuse, 1500);
+  } catch (e) {
+    $("ab-state").textContent = "Not sent: " + e.message;
+    $("ab-send").disabled = false;
+  }
+});
+$("s-ab-auto").addEventListener("change", (ev) => {
+  if (ev.target.checked && !confirm("Report new attackers to AbuseIPDB automatically while this dashboard runs?\n\nReports are public."))
+    ev.target.checked = false;
+});
+
 // ---- indicator export (Intel tab) --------------------------------------------------------------
 function iocQuery(format) {
   const kinds = [...document.querySelectorAll("input[name=ioc-kind]:checked")].map((c) => c.value);
@@ -1552,7 +1605,7 @@ async function saveSettings(body) {
 }
 $("settings-form").addEventListener("submit", (ev) => {
   ev.preventDefault();
-  const body = { auto_lookup: $("s-auto").checked, auto_iprep: $("s-iprep").checked, sync_seconds: Number($("s-sync").value) || 60,
+  const body = { auto_lookup: $("s-auto").checked, auto_iprep: $("s-iprep").checked, abuse_auto: $("s-ab-auto").checked, sync_seconds: Number($("s-sync").value) || 60,
     own_ips: $("s-own").value.split(",").map((x) => x.trim()).filter(Boolean), forward: fwBody() };
   if ($("s-vt").value.trim()) body.virustotal_api_key = $("s-vt").value.trim();
   if ($("s-mb").value.trim()) body.malwarebazaar_auth_key = $("s-mb").value.trim();

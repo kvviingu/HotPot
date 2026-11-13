@@ -124,6 +124,8 @@ Plain-text version:
 * Log forwarding from the dashboard to syslog (RFC 5424 over UDP, TCP or TLS), Elasticsearch or
   OpenSearch, Splunk HEC, or any HTTP endpoint that takes NDJSON. One JSON document per event; nothing
   is sent twice, and nothing is lost while the destination is down.
+* Reporting attacker IPs to AbuseIPDB, by hand or every 15 minutes: only IPs that did more than knock,
+  at most once a day each, with a fixed comment that carries nothing the attacker typed.
 
 **Operations**
 * Early container reset when an attacker writes persistence (keys, cron, systemd, sudoers and so on),
