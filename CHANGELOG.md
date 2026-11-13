@@ -5,6 +5,10 @@ prints the one you have.
 
 ## Unreleased
 
+* **Fewer duplicate samples:** the backend keeps the first 5 versions of each changed text file until the
+  container restarts, instead of every version. Malware left running had rewritten `.bashrc` every
+  minute, which filled the Samples tab with more than 100 near-identical copies. Programs, scripts and
+  binary files are still always kept.
 * **Indicator export** on the Intel tab: attacker IPs, sample hashes, URLs and domains as a STIX 2.1
   bundle, a MISP event, CSV or a plain blocklist, with a TLP marking.
 * **Log forwarding** from the dashboard to syslog (UDP, TCP, TLS), Elasticsearch/OpenSearch, Splunk HEC

@@ -70,6 +70,10 @@ PERSIST_RE = re.compile(r"^/(root|home/[^/]+)/(\.ssh/authorized_keys2?|\.bashrc|
 GUARD_QUIET = 60            # s since persistence was first planted
 GUARD_GAP = 600             # s between early resets
 RESET_REASON = "/var/lib/nb-harvest/.reset-reason"
+# Text files that keep changing (malware left running rewrote .bashrc every minute) would otherwise fill
+# the quarantine with near-identical copies. Keep this many versions of each path until the container
+# restarts; programs, scripts and binary files are always kept.
+VERSIONS_PER_FILE = 5
 URL_RE = re.compile(r"(?i)\b(?:https?|ftp)://[^\s'\"<>|;`)\\]{3,400}")
 
 
@@ -334,7 +338,7 @@ def magic(path):
 
 
 def store(fd, size):
-    """Copy an open file into the quarantine; returns (sha256, stored_path) or None."""
+    """Copy an open file into the quarantine; returns (sha256, stored_path, size, newly_stored) or None."""
     h = hashlib.sha256()
     tmp = os.path.join(QFILES, f".tmp-{os.getpid()}")
     n = 0
@@ -354,10 +358,35 @@ def store(fd, size):
     dst = os.path.join(QFILES, sha + ".bin")
     if os.path.exists(dst):
         os.unlink(tmp)
-    else:
-        os.chmod(tmp, 0o400)
-        os.replace(tmp, dst)
-    return sha, dst, n
+        return sha, dst, n, False
+    os.chmod(tmp, 0o400)
+    os.replace(tmp, dst)
+    return sha, dst, n, True
+
+
+def is_plain_text(path):
+    """True for a non-executable text file: no NUL bytes at the start and no #! line."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4096)
+    except OSError:
+        return False
+    return b"\0" not in head and not head.startswith(b"#!")
+
+
+def keep_version(st, path, mode, dst, pid):
+    """Count versions of one path since the container started; False once a text file is over the cap."""
+    v = st.get("versions")
+    if not isinstance(v, dict) or v.get("pid") != pid or not isinstance(v.get("n"), dict):
+        v = st["versions"] = {"pid": pid, "n": {}}
+    n = v["n"]
+    c = n.pop(path, 0) + 1
+    n[path] = c
+    if len(n) > 5000:
+        v["n"] = dict(list(n.items())[-3000:])
+    if c <= VERSIONS_PER_FILE or mode & 0o111:
+        return True
+    return not is_plain_text(dst)
 
 
 def ct_pid():
@@ -402,7 +431,7 @@ def capture_files(st, out, init_pid):
                     r = store(fd, s.st_size)
                     if not r:
                         continue
-                    sha, dst, n = r
+                    sha, dst, n, new = r
                     budget -= n
                     k = path + "\0" + sha
                     if PERSIST_RE.match(path):  # before the dedupe: bots plant the identical key every time
@@ -411,6 +440,13 @@ def capture_files(st, out, init_pid):
                     if k in seen:
                         continue
                     seen[k] = 1
+                    if not keep_version(st, path, s.st_mode, dst, init_pid):
+                        if new:
+                            os.unlink(dst)
+                        if st["versions"]["n"].get(path) == VERSIONS_PER_FILE + 1:
+                            out.write({"type": "file_capped", "t": now_ms(), "path": path[:500],
+                                       "kept": VERSIONS_PER_FILE})
+                        continue
                     out.write({"type": "file", "t": now_ms(), "src": "disk", "path": path[:500], "sha256": sha,
                                "size": n, "mode": oct(s.st_mode & 0o7777), "uid": s.st_uid - UID_BASE,
                                "mtime": int(s.st_mtime * 1000), "ctime": int(s.st_ctime * 1000),
@@ -449,7 +485,7 @@ def capture_memory_exes(st, out):
             os.close(fd)
         if not r:
             continue
-        sha, dst, n = r
+        sha, dst, n, _ = r
         k = target + "\0" + sha
         if k in seen:
             continue
@@ -503,7 +539,7 @@ def fetch_urls(st, out, urls):
                     o.write(data)
                 fd = os.open(tmp, os.O_RDONLY)
                 try:
-                    sha, dst, n = store(fd, len(data))
+                    sha, dst, n, _ = store(fd, len(data))
                 finally:
                     os.close(fd)
                     os.unlink(tmp)
