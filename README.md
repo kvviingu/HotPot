@@ -135,7 +135,7 @@ Plain-text version:
   Your dashboard keeps its own copy of every log line, so history is not lost.
 * Weekly report per ISO week, saved every Monday as a self-contained HTML page.
 * Local dashboard with tabs Overview, Sessions, Traps, Statistics, Intel, Samples, Report, Status and
-  Settings. The Overview map zooms by region and colours each place by how far its sessions got. Statistics compares each period with the one before it (trends, heatmap, funnels,
+  Settings. The Overview map zooms by region and colours each place by how far its sessions got. It can replay the last 24 hours as animated arcs. Statistics compares each period with the one before it (trends, heatmap, funnels,
   distributions, ATT&CK grid, rising and falling items, CSV export).
 
 ## Screenshots

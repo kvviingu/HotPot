@@ -5,6 +5,8 @@ prints the one you have.
 
 ## Unreleased
 
+* **Map replay** on the Overview: "Replay last 24 hours" plays the last day's events as arcs on the
+  map, squeezed into 30 seconds to 3 minutes, with pause and a position slider.
 * **Fewer duplicate samples:** the backend keeps the first 5 versions of each changed text file until the
   container restarts, instead of every version. Malware left running had rewritten `.bashrc` every
   minute, which filled the Samples tab with more than 100 near-identical copies. Programs, scripts and

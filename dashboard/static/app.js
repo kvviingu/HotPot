@@ -2111,7 +2111,7 @@ async function pollLive() {
     for (const h of hits) live.seen.push(h.t);
     if (live.since === null) {
       for (const h of hits.slice(-TICKER_ROWS)) pushTicker(h, false);  // backlog: shown without animation
-    } else if (hits.length) {
+    } else if (hits.length && !rp.on) {   // during a map replay new hits wait for the next poll after it
       const span = hits[hits.length - 1].t - hits[0].t;
       live.squeeze = Math.max(1, span / 12000);                       // play a batch over at most ~12 s
       live.queue.push(...hits.slice(-80));
@@ -2124,6 +2124,90 @@ async function pollLive() {
     $("live-led").className = "live-led";
   }
 }
+
+// ---- map replay --------------------------------------------------------------------------
+// Plays the last 24 hours of hits through the same arcs and ticker as the live view, squeezed
+// into 30 s to 3 min. Busy stretches are sampled on the server (at most 2,500 hits).
+const rp = { on: false, playing: false, hits: [], i: 0, t0: 0, t1: 0, clock: 0, last: 0, tick: 0, saved: [] };
+const RP_DRAW_PER_FRAME = 10;
+
+function rpLabel() {
+  const d = new Date(rp.clock);
+  $("rp-clock").textContent = d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }) + " " +
+    d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  $("rp-pos").value = String(Math.round((rp.clock - rp.t0) / Math.max(1, rp.t1 - rp.t0) * 1000));
+}
+function rpClearLayer() {
+  $("live-layer").replaceChildren();
+  drawTarget();
+}
+function rpSetPlaying(on) {
+  rp.playing = on;
+  $("rp-play").textContent = on ? "Pause" : (rp.clock >= rp.t1 ? "Play again" : "Play");
+  if (on) { rp.last = performance.now(); requestAnimationFrame(rpFrame); }
+}
+function rpFrame(now) {
+  if (!rp.playing || !rp.on) return;
+  const dt = Math.min(250, now - rp.last);
+  rp.last = now;
+  rp.clock = Math.min(rp.t1, rp.clock + dt * (rp.t1 - rp.t0) / Number($("rp-speed").value));
+  let drawn = 0;
+  while (rp.i < rp.hits.length && rp.hits[rp.i].t <= rp.clock) {
+    const h = rp.hits[rp.i++];
+    if (drawn++ < RP_DRAW_PER_FRAME) drawHit(h);
+    if (now - rp.tick > 140) { rp.tick = now; pushTicker(h, true); }
+  }
+  rpLabel();
+  if (rp.clock >= rp.t1) { rpSetPlaying(false); return; }
+  requestAnimationFrame(rpFrame);
+}
+function rpSeek(v) {
+  rp.clock = rp.t0 + v / 1000 * (rp.t1 - rp.t0);
+  rp.i = rp.hits.findIndex((h) => h.t > rp.clock);
+  if (rp.i < 0) rp.i = rp.hits.length;
+  rpClearLayer();
+  rpLabel();
+}
+async function rpStart() {
+  const btn = $("rp-start");
+  btn.disabled = true;
+  let r;
+  try {
+    r = await (await fetch(`/api/map-replay?own=${$("own").checked ? 1 : 0}`)).json();
+  } catch (e) {
+    btn.disabled = false;
+    return;
+  }
+  btn.disabled = false;
+  $("rp-bar").hidden = false;
+  if (r.target) live.target = r.target;
+  if (!rp.on) rp.saved = [...$("ticker").children];
+  Object.assign(rp, { on: true, hits: r.hits || [], i: 0, t0: r.from, t1: r.to, clock: r.from, tick: 0 });
+  $("ticker").replaceChildren();
+  rpClearLayer();
+  $("rp-note").textContent = !rp.hits.length ? "Nothing happened in the last 24 hours."
+    : rp.hits.length < r.total
+      ? `Showing ${fmtN(rp.hits.length)} of ${fmtN(r.total)} events, sampled evenly over the day. Commands, downloads, tripwires and accepted logins get most of the room.`
+      : `${fmtN(r.total)} events.`;
+  rpLabel();
+  rpSetPlaying(rp.hits.length > 0);
+}
+function rpStop() {
+  rp.on = false;
+  rp.playing = false;
+  $("rp-bar").hidden = true;
+  rpClearLayer();
+  $("ticker").replaceChildren(...rp.saved);
+  rp.saved = [];
+  $("rp-start").focus();
+}
+$("rp-start").addEventListener("click", rpStart);
+$("rp-stop").addEventListener("click", rpStop);
+$("rp-play").addEventListener("click", () => {
+  if (rp.clock >= rp.t1) rpSeek(0);
+  rpSetPlaying(!rp.playing);
+});
+$("rp-pos").addEventListener("input", (ev) => rpSeek(Number(ev.target.value)));
 
 // ---- loading -----------------------------------------------------------------------------
 function renderStatus() {

@@ -57,6 +57,7 @@
         <div class="phead">
           <h2>Where sessions come from</h2>
           <p class="note" id="map-note"></p>
+          <button class="small" type="button" id="rp-start">Replay last 24 hours</button>
         </div>
         <div class="mapbox">
           <div class="mapctl" id="map-ctl" hidden>
@@ -70,6 +71,22 @@
             <div id="map" class="map"></div>
             <svg id="live-layer" class="live-layer" aria-hidden="true"></svg>
           </div>
+        </div>
+        <div class="rbar rp-bar" id="rp-bar" hidden>
+          <button class="small" type="button" id="rp-play">Pause</button>
+          <select id="rp-speed" aria-label="Replay length">
+            <option value="30000">30 s</option>
+            <option value="60000" selected>1 min</option>
+            <option value="180000">3 min</option>
+          </select>
+          <input type="range" id="rp-pos" min="0" max="1000" value="0" aria-label="Replay position">
+          <span class="mono rp-clock" id="rp-clock"></span>
+          <button class="small" type="button" id="rp-stop">Back to live</button>
+          <div class="rp-keys" aria-label="Arc colours">
+            <span data-k="ssh">SSH or Telnet</span><span data-k="web">Web</span><span data-k="svc">Decoy service</span>
+            <span data-k="ok">Login accepted</span><span data-k="cmd">Command, download or tripwire</span>
+          </div>
+          <p class="note rp-note" id="rp-note"></p>
         </div>
         <div class="maplegend" id="map-legend" hidden></div>
         <div class="live">

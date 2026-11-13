@@ -35,6 +35,13 @@ sessions. The five busiest places in view are labelled. Zoom with the World / Eu
 buttons, + and −, Ctrl + scroll or a double-click; drag to pan. Country borders come from world-atlas
 `countries-110m.json`, downloaded on first run next to the land outline.
 
+**Replay last 24 hours** plays the last day's events on the map as arcs to the sensor, in 30 seconds,
+1 minute or 3 minutes, with the ticker below showing what each one was. Arc colours: SSH or Telnet,
+web, decoy service, login accepted, and command, download or tripwire. Pause, drag the slider to jump,
+or press "Back to live". On a busy day it shows up to 2,500 events, sampled evenly over the day, with
+commands, downloads, tripwires and accepted logins taking up to 70 % of them. Live hits that arrive
+during a replay are not animated. Data comes from `/api/map-replay`; "My IP" applies as elsewhere.
+
 ## Statistics
 
 A high-level view of the chosen period, compared with the period of the same length just before it

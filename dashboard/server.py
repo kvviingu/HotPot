@@ -1516,12 +1516,15 @@ def make_cowrie(sid: str, evs: list) -> dict:
 
 
 LIVE_KEEP = 400
+REPLAY_HOURS = 24
+REPLAY_KEEP = 80000         # events held for the map replay (the last REPLAY_HOURS)
+REPLAY_SEND = 2500          # at most this many go to the browser; the rest are sampled evenly
 
 
-def live_hits(web_events: list, by_sid: dict, decoys: list) -> list:
+def live_hits(web_events: list, by_sid: dict, decoys: list, keep: int = LIVE_KEEP) -> list:
     """The latest individual events (requests, connects, logins, commands) for the live ticker."""
     out = []
-    for e in web_events[-LIVE_KEEP:]:
+    for e in web_events[-keep:]:
         st = e.get("status")
         out.append({"t": e["t"], "ip": e["ip"], "kind": "web", "ok": isinstance(st, int) and st < 400,
                     "type": "canary" if e.get("canary_hit") else "request",
@@ -1553,7 +1556,40 @@ def live_hits(web_events: list, by_sid: dict, decoys: list) -> list:
                 out.append({"t": e["t"], "ip": x["ip"], "kind": x["kind"], "type": "command", "ok": True,
                             "what": a["title"][:120]})
     out.sort(key=lambda h: h["t"])
-    return out[-LIVE_KEEP:]
+    return out[-keep:]
+
+
+def hit_out(h: dict) -> dict:
+    g = geo.lookup(h["ip"])
+    x = y = None
+    if g["lat"] is not None:
+        x, y = (round(v, 1) for v in geo.project(g["lon"], g["lat"]))
+    return {**h, "x": x, "y": y, "cc": g["cc"], "country": g["country"]}
+
+
+def map_target():
+    tg = geo.lookup(CFG["ssh_host"])
+    return list(round(v, 1) for v in geo.project(tg["lon"], tg["lat"])) if tg["lat"] is not None else None
+
+
+def map_replay_view(include_own: bool) -> dict:
+    """The last REPLAY_HOURS of hits for the map replay. Shell commands, downloads, canary hits and
+    accepted logins come first (up to 70 % of REPLAY_SEND); everything is sampled evenly over time."""
+    with lock:
+        hits = MODEL.get("hits", [])
+    own = own_set()
+    end = hits[-1]["t"] if hits else int(time.time() * 1000)
+    start = end - REPLAY_HOURS * 3600_000
+    sel = [h for h in hits if h["t"] >= start and (include_own or h["ip"] not in own)]
+    key = [h for h in sel if h["type"] in ("command", "file", "canary") or (h["type"] == "login" and h["ok"])]
+    rest = [h for h in sel if not (h["type"] in ("command", "file", "canary") or (h["type"] == "login" and h["ok"]))]
+    def even(xs, n):
+        return xs if len(xs) <= n else [xs[int(i * len(xs) / n)] for i in range(n)]
+
+    key = even(key, max(REPLAY_SEND - len(rest), REPLAY_SEND * 7 // 10))   # the rest keeps 30 % or more
+    out = sorted(key + even(rest, REPLAY_SEND - len(key)), key=lambda h: h["t"])
+    return {"hits": [hit_out(h) for h in out], "total": len(sel), "from": start, "to": end,
+            "target": map_target()}
 
 
 def live_view(since: int, include_own: bool) -> dict:
@@ -1561,17 +1597,9 @@ def live_view(since: int, include_own: bool) -> dict:
         hits = MODEL.get("hits", [])
     own = own_set()
     sel = [h for h in hits if h["t"] > since and (include_own or h["ip"] not in own)][-60:]
-    out = []
-    for h in sel:
-        g = geo.lookup(h["ip"])
-        x = y = None
-        if g["lat"] is not None:
-            x, y = (round(v, 1) for v in geo.project(g["lon"], g["lat"]))
-        out.append({**h, "x": x, "y": y, "cc": g["cc"], "country": g["country"]})
     newest = hits[-1]["t"] if hits else 0
-    tg = geo.lookup(CFG["ssh_host"])
-    target = list(round(v, 1) for v in geo.project(tg["lon"], tg["lat"])) if tg["lat"] is not None else None
-    return {"hits": out, "newest": newest, "now": int(time.time() * 1000), "target": target}
+    return {"hits": [hit_out(h) for h in sel], "newest": newest, "now": int(time.time() * 1000),
+            "target": map_target()}
 
 
 LOGIN_NOISE = re.compile(r"update-motd|landscape-sysinfo|/etc/update-motd\.d|motd-news|50-landscape|"
@@ -2789,7 +2817,11 @@ def rebuild() -> None:
     attack_tags(sessions)
 
     sessions.sort(key=lambda x: x["start"], reverse=True)
-    hits = live_hits(web_events, by_sid, decoys)
+    hits = live_hits(web_events, by_sid, decoys, keep=REPLAY_KEEP)
+    if hits:   # keep the last REPLAY_HOURS for the map replay, and at least the newest LIVE_KEEP
+        cut = hits[-1]["t"] - REPLAY_HOURS * 3600_000
+        first = next((i for i, h in enumerate(hits) if h["t"] >= cut), len(hits))
+        hits = hits[min(first, max(0, len(hits) - LIVE_KEEP)):]
     with lock:
         MODEL.update(hits=hits, sessions=sessions, backend=backend, by_id={x["id"]: x for x in sessions}, built=int(time.time() * 1000),
                      lines={"web": n_web, "cowrie": n_cow, "decoys": n_dec, "ids": ids["lines"]}, campaigns=campaigns,
@@ -3783,6 +3815,8 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/stats":
             rng = q.get("range", ["7d"])[0]
             return self.send_json(stats_view(rng if rng in RANGES else "7d", q.get("own", ["0"])[0] == "1"))
+        if u.path == "/api/map-replay":
+            return self.send_json(map_replay_view(q.get("own", ["0"])[0] == "1"))
         if u.path == "/api/live":
             try:
                 since = int(q.get("since", ["0"])[0])

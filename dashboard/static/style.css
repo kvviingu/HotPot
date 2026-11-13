@@ -497,6 +497,17 @@ details.upload button { margin-right: 8px; }
 .rbar { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
 .rbar select { background: var(--sunk); border: 1px solid var(--rule); border-radius: 6px; padding: 2px 6px; font-size: 12px; }
 .rbar input[type=range] { flex: 1 1 200px; accent-color: var(--accent); }
+.rp-bar { margin-top: 10px; padding: 10px 0 2px; border-top: 1px solid var(--hair); }
+.rp-clock { font-size: 13px; color: var(--ink); min-width: 9.5em; }
+.rp-keys { display: flex; flex-wrap: wrap; gap: 4px 14px; flex-basis: 100%; font-size: 12px; color: var(--ink2); }
+.rp-keys span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--hit); margin-right: 6px; vertical-align: -1px; }
+.rp-note { margin: 0; flex-basis: 100%; }
+.rp-keys [data-k=ssh] { --hit: var(--hit-ssh); }
+.rp-keys [data-k=web] { --hit: var(--hit-web); }
+.rp-keys [data-k=svc] { --hit: var(--hit-svc); }
+.rp-keys [data-k=ok] { --hit: var(--hit-ok); }
+.rp-keys [data-k=cmd] { --hit: var(--hit-cmd); }
 .rbar .check { display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--ink2); }
 .term { margin: 0; padding: 10px 14px; background: #000; color: #d7dde5; border: 1px solid var(--rule); border-radius: 8px;
   font: 12.5px/1.35 var(--f-mono); white-space: pre; overflow: auto; }
