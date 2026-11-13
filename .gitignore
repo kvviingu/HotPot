@@ -1,5 +1,6 @@
 # --- your deployment: real addresses, keys and secrets ---------------------------------------------
 honeypot.conf
+AGENTS.local.md
 secrets/*
 !secrets/*.example
 *.env
