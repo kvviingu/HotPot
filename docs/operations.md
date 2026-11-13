@@ -7,7 +7,7 @@
 | Cowrie events (JSON) | front: docker volume `honeypot_cowrie-var`, `log/cowrie/cowrie.json*` |
 | Web honeypot events and its page cache | front: docker volume `honeypot_web-data` |
 | Backend events: exec, connect, file, fetch (JSONL) | backend: `/var/lib/nb-export/backend.jsonl` |
-| Quarantined samples, named `<sha256>.bin`, mode 0400 (each text file keeps its first 5 versions per container start; programs and binary files are always kept) | backend: `/var/lib/nb-quarantine/files/` |
+| Quarantined samples, named `<sha256>.bin`, mode 0400 (text that differs from an earlier sample only in its numbers is not stored again, and each text file keeps at most 5 versions per container start; the hash of a dropped version is still logged, and programs, scripts and binary files are always kept) | backend: `/var/lib/nb-quarantine/files/` |
 | Nightly harvests: tarball, file list, sha256 list | backend: `/var/lib/nb-harvest/` (kept `SAMPLE_KEEP_DAYS`) |
 | Raw audit log (auditd rotates it: 8 files of 50 MB) | backend: `/var/log/audit/` |
 | Decoy service events | front: docker volume `honeypot_decoy-data`, `services.jsonl` |

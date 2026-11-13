@@ -74,6 +74,11 @@ RESET_REASON = "/var/lib/nb-harvest/.reset-reason"
 # the quarantine with near-identical copies. Keep this many versions of each path until the container
 # restarts; programs, scripts and binary files are always kept.
 VERSIONS_PER_FILE = 5
+# Text that differs from an earlier sample only in its numbers (a PID, a counter) is a near-duplicate:
+# its content is not stored again, across container resets. Digits inside dotted addresses still count,
+# so a new IP is never a near-duplicate.
+NUM_RE = re.compile(rb"(?<![\d.])\d+(?![\d.])")
+MAX_SHAPE = 1 << 20
 URL_RE = re.compile(r"(?i)\b(?:https?|ftp)://[^\s'\"<>|;`)\\]{3,400}")
 
 
@@ -364,18 +369,25 @@ def store(fd, size):
     return sha, dst, n, True
 
 
-def is_plain_text(path):
-    """True for a non-executable text file: no NUL bytes at the start and no #! line."""
+def text_shape(path):
+    """For a plain-text file (no NUL bytes at the start, no #! line, at most 1 MB): its hash with the
+    numbers blanked out. None for anything else."""
     try:
+        if os.path.getsize(path) > MAX_SHAPE:
+            return None
         with open(path, "rb") as f:
-            head = f.read(4096)
+            data = f.read()
     except OSError:
-        return False
-    return b"\0" not in head and not head.startswith(b"#!")
+        return None
+    if b"\0" in data[:4096] or data.startswith(b"#!"):
+        return None
+    return hashlib.sha256(NUM_RE.sub(b"#", data)).hexdigest()
 
 
 def keep_version(st, path, mode, dst, pid):
-    """Count versions of one path since the container started; False once a text file is over the cap."""
+    """None to keep a newly stored file; otherwise why its content is dropped: "near_duplicate" (an
+    earlier sample differs only in numbers) or "version_cap" (over VERSIONS_PER_FILE for this path
+    since the container started). Programs, scripts and binary files are always kept."""
     v = st.get("versions")
     if not isinstance(v, dict) or v.get("pid") != pid or not isinstance(v.get("n"), dict):
         v = st["versions"] = {"pid": pid, "n": {}}
@@ -384,9 +396,22 @@ def keep_version(st, path, mode, dst, pid):
     n[path] = c
     if len(n) > 5000:
         v["n"] = dict(list(n.items())[-3000:])
-    if c <= VERSIONS_PER_FILE or mode & 0o111:
-        return True
-    return not is_plain_text(dst)
+    if mode & 0o111:
+        return None
+    shape = text_shape(dst)
+    if shape is None:
+        return None
+    shapes = st.get("shapes")
+    if not isinstance(shapes, dict):
+        shapes = st["shapes"] = {}
+    if shape in shapes:
+        return "near_duplicate"
+    if c > VERSIONS_PER_FILE:
+        return "version_cap"
+    shapes[shape] = 1
+    if len(shapes) > 20000:
+        st["shapes"] = dict(list(shapes.items())[-15000:])
+    return None
 
 
 def ct_pid():
@@ -402,6 +427,14 @@ def capture_files(st, out, init_pid):
     started = time.time()
     seen = st.setdefault("seen", {})       # "path\0sha" -> 1, so an unchanged file is not reported again
     budget = MAX_RUN_BYTES
+    if not isinstance(st.get("shapes"), dict):   # first run with the near-duplicate rule: learn the quarantine
+        shapes = {}
+        for name in sorted(os.listdir(QFILES)):
+            if name.endswith(".bin"):
+                h = text_shape(os.path.join(QFILES, name))
+                if h:
+                    shapes[h] = 1
+        st["shapes"] = shapes
     rootfd = os.open(f"/proc/{init_pid}/root", os.O_RDONLY | os.O_DIRECTORY)
     try:
         for top, dirs, files, dfd in os.fwalk(".", dir_fd=rootfd, follow_symlinks=False):
@@ -440,14 +473,16 @@ def capture_files(st, out, init_pid):
                     if k in seen:
                         continue
                     seen[k] = 1
-                    if not keep_version(st, path, s.st_mode, dst, init_pid):
-                        if new:
-                            os.unlink(dst)
+                    # only new content can be dropped: content already stored costs nothing, and its event
+                    # for this path is still needed (the same key planted in two homes, say)
+                    why = keep_version(st, path, s.st_mode, dst, init_pid) if new else None
+                    if why:
+                        os.unlink(dst)
                         # the content is dropped but its hash is still logged, and the nightly harvest
                         # keeps the file's final state, so an attacker can't hide a change by churning first
                         out.write({"type": "file_capped", "t": now_ms(), "path": path[:500], "sha256": sha,
                                    "size": n, "mode": oct(s.st_mode & 0o7777), "uid": s.st_uid - UID_BASE,
-                                   "ctime": int(s.st_ctime * 1000), "kept": VERSIONS_PER_FILE})
+                                   "ctime": int(s.st_ctime * 1000), "why": why})
                         continue
                     out.write({"type": "file", "t": now_ms(), "src": "disk", "path": path[:500], "sha256": sha,
                                "size": n, "mode": oct(s.st_mode & 0o7777), "uid": s.st_uid - UID_BASE,
