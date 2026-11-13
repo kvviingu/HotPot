@@ -74,10 +74,11 @@ RESET_REASON = "/var/lib/nb-harvest/.reset-reason"
 # the quarantine with near-identical copies. Keep this many versions of each path until the container
 # restarts; programs, scripts and binary files are always kept.
 VERSIONS_PER_FILE = 5
-# Text that differs from an earlier sample only in its numbers (a PID, a counter) is a near-duplicate:
-# its content is not stored again, across container resets. Digits inside dotted addresses still count,
-# so a new IP is never a near-duplicate.
-NUM_RE = re.compile(rb"(?<![\d.])\d+(?![\d.])")
+# Text at the same path that differs from an earlier sample only in standalone numbers (a PID, a
+# counter) is a near-duplicate: its content is not stored again, across container resets. Digits next
+# to letters, dots, colons, @ or brackets (IPs, IPv6, ports, hex, keys, wallets) still count, and so
+# does every URL in the file.
+NUM_RE = re.compile(rb"(?<![A-Za-z0-9.:@\[\]])\d+(?![A-Za-z0-9.:@\[\]])")
 MAX_SHAPE = 1 << 20
 URL_RE = re.compile(r"(?i)\b(?:https?|ftp)://[^\s'\"<>|;`)\\]{3,400}")
 
@@ -381,7 +382,8 @@ def text_shape(path):
         return None
     if b"\0" in data[:4096] or data.startswith(b"#!"):
         return None
-    return hashlib.sha256(NUM_RE.sub(b"#", data)).hexdigest()
+    urls = sorted(set(URL_RE.findall(data.decode("latin-1"))))
+    return hashlib.sha256(NUM_RE.sub(b"#", data) + b"\0" + "\n".join(urls).encode("latin-1")).hexdigest()
 
 
 def keep_version(st, path, mode, dst, pid):
@@ -401,6 +403,7 @@ def keep_version(st, path, mode, dst, pid):
     shape = text_shape(dst)
     if shape is None:
         return None
+    shape = hashlib.sha256((path + "\0" + shape).encode("utf-8", "replace")).hexdigest()
     shapes = st.get("shapes")
     if not isinstance(shapes, dict):
         shapes = st["shapes"] = {}
@@ -427,14 +430,6 @@ def capture_files(st, out, init_pid):
     started = time.time()
     seen = st.setdefault("seen", {})       # "path\0sha" -> 1, so an unchanged file is not reported again
     budget = MAX_RUN_BYTES
-    if not isinstance(st.get("shapes"), dict):   # first run with the near-duplicate rule: learn the quarantine
-        shapes = {}
-        for name in sorted(os.listdir(QFILES)):
-            if name.endswith(".bin"):
-                h = text_shape(os.path.join(QFILES, name))
-                if h:
-                    shapes[h] = 1
-        st["shapes"] = shapes
     rootfd = os.open(f"/proc/{init_pid}/root", os.O_RDONLY | os.O_DIRECTORY)
     try:
         for top, dirs, files, dfd in os.fwalk(".", dir_fd=rootfd, follow_symlinks=False):

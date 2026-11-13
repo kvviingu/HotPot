@@ -30,14 +30,20 @@ class KeepVersion(unittest.TestCase):
         st = {}
         self.assertIsNone(self.keep(st, "/root/.bashrc", b"sed -e '/780/d'\n"))
         self.assertEqual(self.keep(st, "/root/.bashrc", b"sed -e '/588/d'\n"), "near_duplicate")
-        # across paths and container restarts too
-        self.assertEqual(self.keep(st, "/home/admin/.bashrc", b"sed -e '/1234/d'\n", pid=200), "near_duplicate")
+        # across container restarts too, but each path keeps its own first copy
+        self.assertEqual(self.keep(st, "/root/.bashrc", b"sed -e '/1234/d'\n", pid=200), "near_duplicate")
+        self.assertIsNone(self.keep(st, "/home/admin/.bashrc", b"sed -e '/1234/d'\n", pid=200))
+        self.assertIsNone(self.keep(st, "/etc/cron.d/t", b"echo test > /tmp/cron_d_test_2605\n"))
+        self.assertEqual(self.keep(st, "/etc/cron.d/t", b"echo test > /tmp/cron_d_test_7222\n"),
+                         "near_duplicate")
 
-    def test_new_ip_or_text_is_not_a_duplicate(self):
-        st = {}
-        self.assertIsNone(self.keep(st, "/etc/cron.d/x", b"* * * * * root curl http://1.2.3.4/a\n"))
-        self.assertIsNone(self.keep(st, "/etc/cron.d/x", b"* * * * * root curl http://1.2.3.5/a\n"))
-        self.assertIsNone(self.keep(st, "/etc/cron.d/x", b"* * * * * root curl http://1.2.3.5/b\n"))
+    def test_addresses_ports_keys_and_urls_count(self):
+        st, p = {}, "/etc/cron.d/x"
+        for line in (b"curl http://1.2.3.4/a", b"curl http://1.2.3.5/a", b"curl http://1.2.3.5/b",
+                     b"curl http://h:8080/a", b"curl http://h:8081/a", b"curl http://h/a/123",
+                     b"curl http://h/a/124", b"nc [::1] 4444", b"wallet 4A1b2", b"wallet 4A1b3"):
+            st.pop("versions", None)   # the per-reset cap is tested separately
+            self.assertIsNone(self.keep(st, p, line + b"\n"), line)
 
     def test_text_file_is_capped(self):
         st = {}
