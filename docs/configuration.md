@@ -30,7 +30,7 @@ config.
 | `BACKEND_SSH_PORT`, `BACKEND_TELNET_PORT` | `2222`, `2323` | where Cowrie forwards logins on the backend |
 | `CT_NAME` | `fileserver01` | Incus container name |
 | `CT_BRIDGE_CIDR`, `CT_IP` | `10.200.0.1/24`, `10.200.0.10` | container's private bridge and address |
-| `CT_MEMORY`, `CT_DISK_POOL_SIZE` | `560MiB`, `18GiB` | container limits |
+| `CT_MEMORY`, `CT_DISK_POOL_SIZE` | `448MiB`, `18GiB` | container limits; the container gets no swap, so a runaway process is killed inside it |
 | `LLM_ENABLED` | `1` | LLM-generated pages for unknown web paths |
 | `LLM_MODELS` | comma list | OpenRouter models, tried in order |
 | `LLM_DAILY_CAP`, `LLM_PER_MINUTE` | `300`, `10` | request limits for the fallback |

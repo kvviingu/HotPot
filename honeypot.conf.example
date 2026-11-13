@@ -19,7 +19,7 @@ BACKEND_TELNET_PORT=2323
 CT_NAME=fileserver01
 CT_BRIDGE_CIDR=10.200.0.1/24
 CT_IP=10.200.0.10
-CT_MEMORY=560MiB
+CT_MEMORY=448MiB
 CT_DISK_POOL_SIZE=18GiB
 
 # ---- web honeypot: LLM fallback for unknown paths (OpenRouter, free models) ----------------------------

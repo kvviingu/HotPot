@@ -57,6 +57,9 @@ if ! incus info "$CT" >/dev/null 2>&1; then
   incus config device add "$CT" telnet proxy listen=tcp:$BACKEND_IP:$BACKEND_TELNET_PORT connect=tcp:$CT_IP:23 nat=true
   incus start "$CT"
 fi
+# also on re-runs, so a changed CT_MEMORY reaches an existing container (applies live). No swap for the
+# container: a runaway process inside is killed there instead of pushing the host into swap.
+incus config set "$CT" limits.memory="$CT_MEMORY" limits.memory.swap=false
 
 # --- firewall: front VM may reach the container ports; the container may reach nothing ---------------
 ipt() { iptables -C "$@" 2>/dev/null || iptables -I "$@"; }

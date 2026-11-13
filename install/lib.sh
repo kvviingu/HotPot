@@ -69,6 +69,23 @@ setup_sites() {
     | grep -E '^\.?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$' | sort -u     # plain host names only
 }
 
+# ---- swap ---------------------------------------------------------------------------------------------
+# 1 GB VMs with no swap hang when something eats the RAM (a miner in the container did): give the host room
+ensure_swap() {
+  local size=${1:-2}   # GiB
+  if ! swapon --show=NAME --noheadings | grep -q .; then
+    if [ ! -f /swapfile ]; then
+      fallocate -l "${size}G" /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=$((size * 1024)) status=none
+      chmod 600 /swapfile
+      mkswap /swapfile >/dev/null
+    fi
+    swapon /swapfile
+  fi
+  if [ -f /swapfile ] && ! grep -q '^/swapfile ' /etc/fstab; then echo '/swapfile none swap sw 0 0' >> /etc/fstab; fi
+  echo 'vm.swappiness=10' > /etc/sysctl.d/60-hotpot-swap.conf
+  sysctl -q -w vm.swappiness=10
+}
+
 # ---- data retention -----------------------------------------------------------------------------------
 # daily hotpot-retention.timer: old logs, recordings, harvests and samples (install/retention.sh)
 install_retention() {

@@ -41,6 +41,9 @@ if command -v incus >/dev/null && incus snapshot list "$CT_NAME" -f csv -c n 2>/
   incus start "$CT_NAME" 2>/dev/null || true
 fi
 
+step "Swap"
+ensure_swap 2
+
 step "Host: Incus, firewall, audit rules"
 bash "$SRC/backend/setup_host.sh" "$SRC"
 
