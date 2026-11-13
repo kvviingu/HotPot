@@ -721,6 +721,12 @@ def scan_vm(where: str) -> dict:
     now = int(time.time() * 1000)
     with samples_lock:
         files = SAMPLES_META["files"]
+        # a full listing forgets files the VM no longer has; an empty one only counts without an error
+        if isinstance(res.get("files"), list) and (res["files"] or not res.get("error")):
+            now_there = {str(f.get("sha", "")) for f in res["files"]}
+            for h, m in files.items():
+                if where in (m.get("where") or []) and h not in now_there:
+                    m["where"].remove(where)
         for f in res.get("files", []):
             h = str(f.get("sha", ""))
             if not SHA_RE.match(h):
@@ -874,8 +880,11 @@ def samples_view() -> dict:
             add(h, m["where"][0], m.get("mtime") or 0, "", None, "on the VM, no matching session")
     _, desc = yara_rules()
     rows = []
+    listed = {w for m in files.values() for w in (m.get("where") or ())}   # VMs whose quarantine was read
     for h, r in out.items():
         m = files.get(h, {})
+        if not m.get("where") and r["where"] in listed:
+            continue   # no longer on the VM (pruned or past SAMPLE_KEEP_DAYS); sessions still show the hash
         if m.get("where") and r["where"] not in m["where"]:
             r["where"] = m["where"][0]
         r["size"] = m.get("size") or r["size"]
