@@ -65,5 +65,22 @@ class LlmPages(unittest.TestCase):
         self.assertEqual(p["served"], 2)
 
 
+    def test_preview_only_for_saved_html(self):
+        server.LLM_PAGES.update(t=time.time(), error="", usage=[], pages=[
+            ["GET /a", 200, "text/html", "m", "2026-11-14T12:00:00+00:00", 9, "<h1>x</h1>"],
+            ["GET /b", 200, "application/json", "m", "2026-11-14T12:00:00+00:00", 2, "{}"]])
+        self.assertEqual(server.llm_preview("GET /a"), b"<h1>x</h1>")
+        self.assertIsNone(server.llm_preview("GET /b"))
+        self.assertIsNone(server.llm_preview("GET /missing"))
+
+    def test_preview_policy_blocks_scripts_and_outside_loads(self):
+        csp = server.PREVIEW_CSP
+        self.assertIn("default-src 'none'", csp)
+        self.assertIn("sandbox", csp)
+        self.assertNotIn("script-src", csp)
+        self.assertNotIn("http", csp)
+        self.assertIn("frame-src 'self'", server.CSP)   # the frame cannot be navigated to an outside site
+
+
 if __name__ == "__main__":
     unittest.main()

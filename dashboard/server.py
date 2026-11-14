@@ -1005,6 +1005,14 @@ def fetch_llm_pages(force: bool) -> None:
             LLM_PAGES.update(t=time.time(), error=f"{type(e).__name__}: {e}"[:300])
 
 
+def llm_preview(key: str):
+    """The saved HTML of one AI-written page (as last fetched), for the sandboxed preview; None if there is none."""
+    for p in LLM_PAGES["pages"]:
+        if isinstance(p, list) and len(p) == 7 and p[0] == key and str(p[2]).startswith("text/html"):
+            return s(p[6], 16384).encode("utf-8", "replace")
+    return None
+
+
 def llm_pages_view(force: bool, include_own: bool) -> dict:
     fetch_llm_pages(force)
     with lock:
@@ -3916,8 +3924,14 @@ STATIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"),
                 "/stats.js": ("stats.js", "application/javascript; charset=utf-8"),
                 "/style.css": ("style.css", "text/css; charset=utf-8"),
                 "/favicon.svg": ("favicon.svg", "image/svg+xml")}
+# frame-src 'self' lets the AI pages tab show a preview, and also stops the previewed page from navigating
+# its frame anywhere else (a link or meta refresh to an outside site would reveal this machine's address).
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; "
-       "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+       "frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+# An AI-written page, rendered: no scripts, forms, plugins or popups (sandbox, opaque origin), nothing
+# loaded from anywhere (only inline styles and data: images), and only framed by the dashboard itself.
+PREVIEW_CSP = ("default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; "
+               "form-action 'none'; frame-ancestors 'self'; sandbox")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -4008,6 +4022,22 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(samples_view())
         if u.path == "/api/llm-pages":
             return self.send_json(llm_pages_view(q.get("force", ["0"])[0] == "1", q.get("own", ["0"])[0] == "1"))
+        if u.path == "/api/llm-preview":
+            body = llm_preview(q.get("key", [""])[0][:420])
+            if body is None:
+                return self.send(404, b"not found", "text/plain")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Security-Policy", PREVIEW_CSP)
+            self.send_header("X-Frame-Options", "SAMEORIGIN")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if u.path == "/api/report":
             return self.send_json(report_data(q.get("week", [""])[0][:10]))
         if u.path == "/api/report.html":

@@ -90,7 +90,12 @@ tab reads that table over SSH (read-only, at most every 5 minutes, or when you p
 the newest 2,000 pages: when each was written, the request, whether it is served as a page or as a 404
 (pages that came out as error messages), its type and size, and the model. Click a path to read the page
 (the first 16 KB). From the web logs it adds how often each page was served, to how many visitors, and
-who asked for it first. The text was written for an attacker's request: it is shown as plain text only.
+who asked for it first. The text was written for an attacker's request: it is shown as plain text.
+
+**Preview** (HTML pages only) renders the page in a frame from `/api/llm-preview`. Its Content Security
+Policy sandboxes it (no scripts, forms or popups, an origin of its own) and lets it load nothing but inline
+styles and `data:` images, so a preview never contacts an outside site. The dashboard's own policy keeps
+the frame from being navigated away from the dashboard by a link or a meta refresh.
 
 ## YARA
 

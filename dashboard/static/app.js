@@ -1860,6 +1860,29 @@ async function loadLlm(force) {
   } catch (e) { $("llm-note").textContent = "Dashboard server not answering."; }
   $("llm-refresh").disabled = false;
 }
+// Rendered in a sandboxed frame: the server sends it with a CSP that allows no scripts, forms or outside loads.
+function llmPreviewTool(p) {
+  const box = el("div", "llm-preview");
+  const b = el("button", "small", "Preview");
+  b.type = "button";
+  b.setAttribute("aria-expanded", "false");
+  let frame = null;
+  b.addEventListener("click", () => {
+    if (!frame) {
+      frame = el("iframe", "llm-frame");
+      frame.setAttribute("sandbox", "");
+      frame.setAttribute("referrerpolicy", "no-referrer");
+      frame.title = `Preview of ${p.method} ${p.path}`;
+      frame.src = "/api/llm-preview?key=" + encodeURIComponent(p.method + " " + p.path);
+      box.append(frame);
+    } else frame.hidden = !frame.hidden;
+    const open = !frame.hidden;
+    b.textContent = open ? "Hide preview" : "Preview";
+    b.setAttribute("aria-expanded", String(open));
+  });
+  box.prepend(b);
+  return box;
+}
 function renderLlm() {
   const d = llmData, body = $("llm-table").tBodies[0];
   if (!d) return;
@@ -1872,6 +1895,7 @@ function renderLlm() {
     det.append(el("summary", "mono", `${p.method} ${p.path}`));
     det.append(el("pre", "llm-body", p.body + (p.size > p.body.length ? `\n… (${fmtBytes(p.size - p.body.length)} more)` : "")));
     req.append(det);
+    if ((p.ctype || "").startsWith("text/html")) req.append(llmPreviewTool(p));
     if (p.asked) {
       const line = el("div", "note");
       const b = el("button", "link mono", p.asked.ip);
