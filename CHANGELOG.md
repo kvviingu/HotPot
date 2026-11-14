@@ -5,6 +5,11 @@ prints the one you have.
 
 ## Unreleased
 
+* **Sleeping scripts are no longer called AI agents:** an SSH session with clockwork pauses (the same
+  length to within 4%) is a script, and "suspected AI agent" now also needs the visitor to follow up on
+  what it saw (list a directory, then open something in it). In the first test the old rule called 9 of
+  9 sleeping scripts agents; the new one calls none, and still catches the test agent.
+
 * **Detection test:** `tools/agent_eval.py` runs scripted sessions and a test AI agent against your own
   honeypot, lets you label sessions you run with real tools, and reports how often the dashboard's
   classes were right.

@@ -140,6 +140,14 @@ DROPPER = re.compile(r"(wget|curl|tftp|ftpget)\b.*(;|&&|\|)|chmod \+x|/bin/busyb
 # Commands that keep the shell busy for a while: the pause after one is waiting, not deciding.
 SLOW_CMD = re.compile(r"(^|[;&|]\s*|\bsudo\s+)(apt(-get)?|yum|dnf|apk|pip3?|npm|git|make|wget|curl|"
                       r"sleep|tar|unzip|docker|masscan|nmap|zmap|ping|dd|find)\b", re.I)
+# Following up on output: a later command names something inside a directory an earlier one listed.
+LIST_CMD = re.compile(r"(?:^|[;&|]\s*|\bsudo\s+)(?:ls|ll|dir|tree|find|cd|du)\b([^;&|]{0,400})", re.I)
+ABS_PATH = re.compile(r"(?<![\w.\-/])/[\w.\-]{1,80}(?:/[\w.\-]{1,80}){0,7}")
+# Names a script asks for without looking first; opening one of these proves nothing.
+STOCK_NAMES = frozenset("""
+    .bash_history .bashrc .bash_profile .profile .ssh authorized_keys id_rsa id_ed25519 known_hosts passwd shadow
+    group sudoers hosts hostname os-release issue motd resolv.conf crontab cron.d ssh sshd_config html www log tmp
+    cpuinfo meminfo version root home bin sbin lib local share""".split())
 # A terminal's bracketed-paste markers around typed text: a person pasted it into an interactive client.
 PASTE_MARK = re.compile(r"\x1b?\[20[01]~")
 # Desktop SSH clients people type into (bots and agent frameworks use SSH libraries instead).
@@ -1467,6 +1475,29 @@ def fmt_ms(ms) -> str:
     return f"{ms / 60000:.1f} min"
 
 
+def metronome(gaps) -> bool:
+    """Most pauses are the same length to within 4%: a sleep in a script. Models and people never keep time."""
+    if len(gaps) < 4:
+        return False
+    med = statistics.median(gaps)
+    return med >= 700 and sum(1 for g in gaps if abs(g - med) <= 0.04 * med) >= 0.7 * len(gaps)
+
+
+def follow_ups(inputs) -> list:
+    """Paths a command asked for inside a directory that an earlier command had listed, leaving out the names
+    every script knows. You only find those by reading the listing, so a script with sleeps has none."""
+    listed, found = set(), []
+    for cmd in inputs[:200]:
+        cmd = cmd[:1000]
+        for path in ABS_PATH.findall(cmd):
+            parent, _, name = path.rpartition("/")
+            if parent in listed and name.lower() not in STOCK_NAMES and path not in found:
+                found.append(path)
+        for m in LIST_CMD.finditer(cmd):
+            listed.update(ABS_PATH.findall(m.group(1)))
+    return found
+
+
 def timing_verdict(n, med, cv, score, reasons):
     """Shared pace heuristic. Returns a class or None; may add to score/reasons."""
     if n < 3 or med is None:
@@ -1569,6 +1600,11 @@ def make_web(ip: str, evs: list) -> dict:
     }
 
 
+# Steady pauses (2) and varied commands (1) are not enough for SSH: a script with sleeps has both. Measured with
+# tools/agent_eval.py; an agent must also follow up on output (2).
+AGENT_SSH_SCORE = 4
+
+
 def make_cowrie(sid: str, evs: list) -> dict:
     evs.sort(key=lambda e: e["t"])
     first = evs[0]
@@ -1607,8 +1643,13 @@ def make_cowrie(sid: str, evs: list) -> dict:
                        + (", pasting commands (the terminal marked them as pasted)" if pasted else ""))
     else:
         # with pauses left out, ask for 3 real ones (as many actions as pauses): 2 short gaps prove nothing
-        v, score = timing_verdict(len(think) + (1 if len(think) == len(gaps) else 0), think_med, think_cv,
-                                  score, reasons)
+        if metronome(think):
+            v = "script"
+            reasons.append(f"Clockwork pauses: {fmt_ms(think_med)} between commands almost every time, to within "
+                           "4%. That is a sleep in a script; a model or a person never keeps time like that")
+        else:
+            v, score = timing_verdict(len(think) + (1 if len(think) == len(gaps) else 0), think_med, think_cv,
+                                      score, reasons)
         if len(think) < len(gaps):
             reasons.append(f"Left out {len(gaps) - len(think)} pause(s) that followed slow commands "
                            "(installs, downloads): waiting, not deciding")
@@ -1616,6 +1657,11 @@ def make_cowrie(sid: str, evs: list) -> dict:
     if len(set(inputs)) >= 4 and not dropper:
         score += 1
         reasons.append(f"Ran {len(set(inputs))} different exploratory commands instead of one fixed payload")
+    deeper = follow_ups(inputs)
+    if len(deeper) >= 2:
+        score += 2
+        reasons.append(f"Followed up on what it saw: opened {len(deeper)} things it had just listed "
+                       f"(first {deeper[0][:80]}). A fixed script can't know those names")
     if cls is None:
         if not cmds:
             cls = "script"
@@ -1629,7 +1675,7 @@ def make_cowrie(sid: str, evs: list) -> dict:
             cls = "script"
         elif (pasted or desktop) and len(cmds) >= 2:
             cls = "human_like"
-        elif score >= 3:
+        elif score >= AGENT_SSH_SCORE:
             cls = "agent_suspected"
         elif dropper:
             cls = "script"
@@ -1642,7 +1688,9 @@ def make_cowrie(sid: str, evs: list) -> dict:
             reasons.append("Ran 1-2 commands and left (typical of automated fingerprinting)")
         else:
             cls = "unknown"
-            reasons.append("Pace and behaviour don't clearly match a script, an AI agent or a person")
+            reasons.append("Paced and varied like an agent, but it never followed up on anything it saw. "
+                           "A script that sleeps between commands looks the same" if score >= 3 else
+                           "Pace and behaviour don't clearly match a script, an AI agent or a person")
 
     if cmds:
         summary = inputs[0][:90] + (f"  (+{len(cmds) - 1} more commands)" if len(cmds) > 1 else "")

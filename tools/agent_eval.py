@@ -162,7 +162,7 @@ def score(pairs: list) -> dict:
     true_agent = sum(n for cls, n in table["agent"].items() if cls in EXPECTED["agent"])
     n_agent = sum(table["agent"].values())
     return {"table": {k: dict(v) for k, v in table.items() if v}, "missing": dict(missing), "total": total,
-            "right": right, "accuracy": right / total if total else None,
+            "right": right, "undecided": sum(c.get("unknown", 0) for c in table.values()), "accuracy": right / total if total else None,
             "agent_precision": true_agent / said_agent if said_agent else None,
             "agent_recall": true_agent / n_agent if n_agent else None}
 
@@ -211,11 +211,12 @@ def report(args) -> int:
         if k in r["table"]:
             print(k.ljust(22) + "".join(str(r["table"][k].get(c, 0)).rjust(19) for c in classes))
     print(f"\nRight overall:    {r['right']} of {r['total']} ({pct(r['accuracy'])})")
+    print(f"No call:          {r['undecided']}   (the dashboard said it could not tell; counted as not right)")
     print(f"Agents caught:    {pct(r['agent_recall'])}   (of the real agent sessions, how many were called an agent)")
     print(f"Agent alarms true: {pct(r['agent_precision'])}   (of the sessions called an agent, how many really were)")
     print("\nBy tool:")
     for tool, c in sorted(by_tool(pairs).items()):
-        print("  " + tool.ljust(34) + ", ".join(f"{n} x {CLASS_LABEL.get(cls, cls)}" for cls, n in c.most_common()))
+        print("  " + tool.ljust(34) + "  " + ", ".join(f"{n} x {CLASS_LABEL.get(cls, cls)}" for cls, n in c.most_common()))
     if r["missing"]:
         print("\nRuns with no session in the dashboard yet (not synced, login failed, or the run was too short): "
               + ", ".join(f"{n} {k}" for k, n in r["missing"].items()))

@@ -19,6 +19,17 @@ score. Agent frameworks and bots connect through SSH libraries and never send pa
 pauses are left out of the timing heuristic; if that leaves fewer than three pauses, timing counts for
 nothing.
 
+**Scripts that sleep.** A script can pause between varied commands and look like an agent thinking. Two
+checks tell them apart in SSH sessions:
+
+* *Clockwork pauses.* If most pauses are the same length to within 4%, it is a `sleep` in a script, and
+  the session is classed Script. Models and people never keep time like that.
+* *Following up.* An agent reads the output: it lists a directory, then opens something it saw there. A
+  fixed script can't know those names. "Suspected AI agent" now needs at least two such follow-ups on top
+  of steady pauses. Names every script knows (`.bash_history`, `passwd`, `.ssh` and the like) don't count.
+
+A session that is paced and varied but never follows up is "Not enough data": it could be either.
+
 ## AI-agent score (0-100)
 
 100 when the session hit a canary token. Otherwise points for:
@@ -46,6 +57,12 @@ The test agent sends the honeypot's shell output to OpenRouter. That output carr
 as it does for any attacker's model; the sensor's and your own addresses are replaced first. The `steady`
 and `random-sleep` scripts are the hard cases: a script that sleeps between varied commands looks much
 like an agent thinking.
+
+First measurement (November 2026, 22 sessions: 19 scripted, 3 from a small free model): the old rule
+called 9 sleeping scripts agents, so only 2 of 11 agent alarms were true. With the two checks above, no
+script is called an agent and both full agent sessions still are; the random-sleep scripts and a
+3-command agent session come out as "Not enough data". The sample is small and has one model in it, so
+label sessions from real agent tools (`mark agent`) before trusting the numbers further.
 
 ## Tripwires
 
