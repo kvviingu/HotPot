@@ -20,6 +20,7 @@ import concurrent.futures
 import hashlib
 import hmac
 import io
+import itertools
 import ipaddress
 import json
 import os
@@ -1491,7 +1492,7 @@ def make_cowrie(sid: str, evs: list) -> dict:
     # the pace that counts as deciding: leave out the waits after slow commands (installs, downloads)
     acts = ([""] if ok and cmds else []) + inputs
     think = [g for g, a in zip(gaps, acts) if not SLOW_CMD.search(a)]
-    _, think_med, think_cv = gap_stats([0] + [sum(think[:i + 1]) for i in range(len(think))])
+    _, think_med, think_cv = gap_stats(list(itertools.accumulate(think, initial=0)))   # linear: attackers set len
     pasted = any(PASTE_MARK.search(i) for i in inputs)
     desktop = bool(DESKTOP_SSH.search(client))
     reasons, score, cls = [], 0, None
