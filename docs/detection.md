@@ -112,6 +112,11 @@ starts `nb-reset.service` (harvest, then restore the clean snapshot), at most on
 Resets show in Status, in the session that caused them, and in the weekly report. The nightly reset
 (`backend/nb-reset.timer`, 03:40 UTC) runs regardless.
 
+**Overload.** Malware in the container can choke the whole backend VM, so that nobody can log in and
+nothing more is recorded. When the VM's 1-minute load stays at 15 or more for three minutes in a row
+(`LOAD_MAX`, `LOAD_RUNS` in `backend/nb-collect.py`), the collector starts the same reset at once, even
+with attackers connected. Status lists it as "Early: malware overloaded the VM".
+
 ## Decoy services
 
 `decoys/honeysvc.py`, enabled with `DECOYS_ENABLED=1` and chosen with `DECOY_SERVICES`. Canned replies

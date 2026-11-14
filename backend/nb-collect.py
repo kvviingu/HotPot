@@ -70,6 +70,11 @@ PERSIST_RE = re.compile(r"^/(root|home/[^/]+)/(\.ssh/authorized_keys2?|\.bashrc|
 GUARD_QUIET = 60            # s since persistence was first planted
 GUARD_GAP = 600             # s between early resets
 RESET_REASON = "/var/lib/nb-harvest/.reset-reason"
+# Malware in the container can choke the whole VM (seen: a brute-forcer and miner, load 92, logins hung for
+# everyone). When the 1-minute load stays this high for this many runs in a row (one a minute), reset at
+# once, connected or not: nothing useful is being recorded any more.
+LOAD_MAX = 15.0
+LOAD_RUNS = 3
 # Text files that keep changing (malware left running rewrote .bashrc every minute) would otherwise fill
 # the quarantine with near-identical copies. Keep this many versions of each path until the container
 # restarts; programs, scripts and binary files are always kept.
@@ -602,6 +607,39 @@ def ct_connections(init_pid):
     return n
 
 
+def load1(path="/proc/loadavg") -> float:
+    try:
+        with open(path) as f:
+            return float(f.read(64).split()[0])
+    except (OSError, ValueError, IndexError):
+        return 0.0
+
+
+def overloaded(st, load, now) -> bool:
+    """Count runs in a row with a choking load; True when it is time to reset."""
+    st["hot"] = st.get("hot", 0) + 1 if load >= LOAD_MAX else 0
+    if st["hot"] < LOAD_RUNS or now - st.get("guard_last", 0) < GUARD_GAP:
+        return False
+    st["hot"] = 0
+    st["guard_last"] = now
+    return True
+
+
+def overload_guard(st, out) -> bool:
+    """Reset the container when it is choking the VM. True when a reset was started."""
+    load = load1()
+    if not overloaded(st, load, time.time()):
+        return False
+    os.makedirs(os.path.dirname(RESET_REASON), mode=0o700, exist_ok=True)
+    with open(RESET_REASON, "w") as f:
+        json.dump({"reason": "overload", "paths": [f"load {load:.0f}"]}, f)
+    r = subprocess.run(["systemctl", "start", "--no-block", "nb-reset.service"], capture_output=True, timeout=20)
+    out.write({"type": "overload", "t": now_ms(), "load": round(load, 1),
+               "action": "reset" if r.returncode == 0 else "reset_failed"})
+    st["persist"] = []
+    return r.returncode == 0
+
+
 def guard(st, out, init_pid):
     """Reset early after persistence was planted, as soon as no attacker is connected."""
     hits = st.get("persist") or []
@@ -639,6 +677,8 @@ def main():
     st = load_state()
     out = Out()
     try:
+        if overload_guard(st, out):
+            return                         # the reset harvests the changed files itself
         urls = parse_audit(st, out)
         pid = ct_pid()
         if pid:

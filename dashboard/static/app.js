@@ -1268,8 +1268,9 @@ function renderVmStatus(st) {
     cp.append(ch);
     const ul = el("ul", "resets");
     for (const r of rz.recent) {
-      const li = el("li", r.reason === "persistence" ? "early" : "");
-      const why = r.reason === "persistence" ? "Early: persistence planted" : r.reason === "persona update" ? "Persona update"
+      const li = el("li", r.reason === "persistence" || r.reason === "overload" ? "early" : "");
+      const why = r.reason === "persistence" ? "Early: persistence planted"
+        : r.reason === "overload" ? "Early: malware overloaded the VM" : r.reason === "persona update" ? "Persona update"
         : r.reason === "nightly" || !r.reason ? "Nightly" : r.reason;
       li.append(el("span", "when", fmtTime(r.t, true)), el("span", "why", why),
         el("span", "note", r.harvested ? `${fmtN(r.harvested)} file${r.harvested > 1 ? "s" : ""} harvested` : "nothing changed"));
@@ -1755,7 +1756,7 @@ async function loadReport() {
     ["Top web paths", "paths", "Path"], ["Decoy service actions", "decoys", "Action"]])
     tbl(title, [label, "Count"], r[key], ([k, v]) => [td(k, "mono"), td(fmtN(v), "num")]);
   tbl("Container resets", ["When", "Why", "Changed"], r.resets, (x) =>
-    [td(fmtTime(x.t, true)), td(x.reason === "persistence" ? "early, after persistence" : x.reason), td(x.paths.join(", "), "mono")]);
+    [td(fmtTime(x.t, true)), td(x.reason === "persistence" ? "early, after persistence" : x.reason === "overload" ? "early, VM overloaded" : x.reason), td(x.paths.join(", "), "mono")]);
 }
 $("report-week").addEventListener("change", (ev) => { reportWeek = ev.target.value; loadReport(); });
 

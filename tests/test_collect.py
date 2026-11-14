@@ -10,6 +10,28 @@ nb = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(nb)
 
 
+class OverloadGuard(unittest.TestCase):
+    def test_resets_after_three_hot_runs_in_a_row(self):
+        st = {}
+        self.assertFalse(nb.overloaded(st, 92.0, 10_000))
+        self.assertFalse(nb.overloaded(st, 40.0, 10_060))
+        self.assertTrue(nb.overloaded(st, 55.0, 10_120))
+
+    def test_a_calm_run_starts_the_count_again(self):
+        st = {}
+        for load in (30.0, 30.0, 2.0, 30.0, 30.0):
+            self.assertFalse(nb.overloaded(st, load, 10_000))
+
+    def test_not_again_within_the_gap(self):
+        st = {}
+        hits = [nb.overloaded(st, 80.0, 10_000 + 60 * i) for i in range(12)]
+        self.assertEqual(hits.count(True), 1)           # 12 minutes: the gap between early resets is 10
+        self.assertTrue(nb.overloaded(st, 80.0, 10_000 + 60 * 13))
+
+    def test_unreadable_load_counts_as_calm(self):
+        self.assertEqual(nb.load1(os.path.join(HERE, "no-such-file")), 0.0)
+
+
 class KeepVersion(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()

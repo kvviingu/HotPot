@@ -5,6 +5,10 @@ prints the one you have.
 
 ## Unreleased
 
+* **Reset on overload:** when malware in the container keeps the backend VM's load at 15 or more for
+  three minutes, the container is harvested and reset at once instead of at night. A brute-forcer and
+  miner had pushed the load to 92, and logins hung for everyone.
+
 * **Sleeping scripts are no longer called AI agents:** an SSH session with clockwork pauses (the same
   length to within 4%) is a script, and "suspected AI agent" now also needs the visitor to follow up on
   what it saw (list a directory, then open something in it). In the first test the old rule called 9 of

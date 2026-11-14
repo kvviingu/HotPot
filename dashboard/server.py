@@ -1287,7 +1287,7 @@ def vm_status(force: bool = False) -> dict:
         with lock:
             rs = list(MODEL.get("backend", {}).get("resets", []))
         week = [r for r in rs if r["t"] > out["t"] - 7 * 86400_000]
-        out["dashboard"]["resets"] = {"week": len(week), "early": sum(r["reason"] == "persistence" for r in week),
+        out["dashboard"]["resets"] = {"week": len(week), "early": sum(r["reason"] in ("persistence", "overload") for r in week),
                                       "last": rs[-1] if rs else None,
                                       "recent": [{"t": r["t"], "reason": r["reason"], "harvested": r.get("harvested"),
                                                   "paths": (r.get("paths") or [])[:3]} for r in rs[-8:][::-1]]}
@@ -2870,6 +2870,10 @@ def report_data(label: str = "") -> dict:
     early = sum(1 for r in wk_resets if r["reason"] == "persistence")
     if early:
         hl.append(f"{IDENT['host']} was reset early {early} time{'s' if early > 1 else ''} after attackers planted persistence")
+    choked = sum(1 for r in wk_resets if r["reason"] == "overload")
+    if choked:
+        hl.append(f"{IDENT['host']} was reset {choked} time{'s' if choked > 1 else ''} because malware in it "
+                  "overloaded the backend VM")
     if not hl:
         hl.append("A quiet week: scanning and password guessing only")
     return {"week": label, "from": t0, "to": t1, "generated": int(time.time() * 1000),
