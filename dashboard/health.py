@@ -1,8 +1,12 @@
 """What is wrong with the sensor right now, in plain words.
 
 `problems()` turns the dashboard's sync state and the VM status probe into a short list the page shows as
-a banner. Pure: no I/O, so it is easy to test. Thresholds are at the top.
+a banner. Pure: no I/O, so it is easy to test. Thresholds are at the top. The alert helpers at the end send
+a problem's title to an address the owner chose.
 """
+import json
+import urllib.parse
+import urllib.request
 
 SYNC_LATE_S = 600           # no good sync for this long
 LOAD_PER_CPU = 6.0          # 5-minute load per CPU
@@ -77,3 +81,63 @@ def problems(status: dict, vm: dict, now_s: float) -> list:
                     "Check the cloud firewall and the service on Status.")
     out.sort(key=lambda p: LEVELS[p["level"]])
     return out
+
+
+# ----------------------------------------------------------------------------- alerts to a phone
+# An optional address in Settings gets a short message when a serious problem appears or clears. Only the
+# problem's title is sent: no addresses, no host names, no error text.
+ALERT_REPEAT_S = 6 * 3600       # the same problem is not announced again within this time
+
+
+def clean_alert_url(v) -> str:
+    """Empty (off) or a checked https address. Raises ValueError with a plain reason."""
+    v = str(v or "").strip()
+    if not v:
+        return ""
+    u = urllib.parse.urlparse(v)
+    if u.scheme != "https" or not u.hostname or len(v) > 400 or any(c.isspace() for c in v):
+        raise ValueError("the alert address must be one https:// link without spaces")
+    return v
+
+
+def alert_host(url: str) -> str:
+    return (urllib.parse.urlparse(url).hostname or "") if url else ""
+
+
+def alert_request(url: str, title: str, body: str = "") -> urllib.request.Request:
+    """The POST for one alert. Discord and Slack webhooks want JSON; anything else gets plain text with a
+    Title header, which is what ntfy and most simple receivers take."""
+    host, text = alert_host(url), (title + ("\n" + body if body else ""))[:900]
+    if host.endswith(("discord.com", "discordapp.com")):
+        data, head = json.dumps({"content": text}).encode(), {"Content-Type": "application/json"}
+    elif host.endswith("slack.com"):
+        data, head = json.dumps({"text": text}).encode(), {"Content-Type": "application/json"}
+    else:
+        data = (body or title).encode()
+        head = {"Content-Type": "text/plain; charset=utf-8", "Title": title.encode("ascii", "replace").decode()[:120]}
+    head["User-Agent"] = "hotpot-dashboard"
+    return urllib.request.Request(url, data=data, headers=head, method="POST")
+
+
+def alert_plan(items: list, state: dict, now_s: float) -> list:
+    """Messages to send for the current problems, as (title, body). `state` remembers what was announced:
+    {"active": {id: title}, "sent": {id: time}}. Only "bad" problems are announced, each at most once per
+    ALERT_REPEAT_S, and once more when it is over."""
+    active, sent = state.setdefault("active", {}), state.setdefault("sent", {})
+    bad = {p["id"]: p["title"] for p in items if p.get("level") == "bad"}
+    out = []
+    for pid, title in bad.items():
+        if pid not in active and now_s - sent.get(pid, 0) >= ALERT_REPEAT_S:
+            out.append(("HotPot: " + title, ""))
+            sent[pid] = now_s
+            active[pid] = title
+    for pid in [p for p in active if p not in bad]:
+        out.append(("HotPot: resolved", active.pop(pid)))
+    for pid in [p for p, t in sent.items() if now_s - t > 7 * 86400]:
+        del sent[pid]
+    return out
+
+
+def send_alert(url: str, title: str, body: str = "", timeout: int = 15) -> int:
+    with urllib.request.urlopen(alert_request(url, title, body), timeout=timeout) as r:
+        return r.status

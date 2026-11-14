@@ -85,6 +85,15 @@ them over SSH).
   12). It checks every 5 minutes (`dashboard/health.py` has the thresholds). "Alert me on the desktop"
   adds a desktop notification for new problems while the page is open. `./hotpot status` prints the same
   basics in a terminal.
+* **Alerts on your phone:** Settings > Dashboard takes an optional alert address: an https link from
+  [ntfy](https://ntfy.sh) (pick a long random topic name and subscribe to it in the app), a Discord
+  webhook or a Slack webhook. A serious problem is sent there once when it starts and once when it is
+  over, at most every 6 hours for the same problem. Only the problem's title is sent, never addresses or
+  error text. It works while the dashboard is running on your PC; nothing on the VMs sends alerts.
+* **History and memory:** the dashboard holds every event of the loaded period in memory, about 100 MB
+  per day of logs on a busy sensor. Settings > Dashboard sets how many days it loads (7 by default); the
+  30-day and All views show what is loaded. Older log files stay in `dashboard/data/mirror`, so raising
+  the number brings them back after a restart. Saved weekly reports are not affected.
 * **Identity check:** `./hotpot deploy` and `./hotpot status` end by reading the web honeypot's front
   page and the container's host name and login banner, and warn if they don't carry this install's
   identity or still show the public reference one.

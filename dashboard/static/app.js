@@ -1305,6 +1305,22 @@ async function loadSettings() {
   $("s-auto").checked = st.auto_lookup;
   $("s-iprep").checked = st.auto_iprep;
   $("s-sync").value = st.sync_seconds;
+  $("s-history").value = st.history_days;
+  $("s-alert").value = "";
+  $("s-alert").placeholder = st.alert_url.set ? `Saved (${st.alert_url.hint}). Type to replace it.` : "Not set";
+  const al = $("s-alert-state");
+  clear(al);
+  al.append("An https link from ntfy, Discord or Slack. It gets the problem's title only, while this dashboard is running. ");
+  if (st.alert_url.set) {
+    const test = el("button", "link", "Send a test"), rm = el("button", "link", "Remove");
+    test.type = rm.type = "button";
+    test.addEventListener("click", async () => {
+      test.disabled = true;
+      try { await postJSON("/api/alert-test", {}); test.textContent = "Test sent"; } catch (e) { test.textContent = "Failed: " + e.message; }
+    });
+    rm.addEventListener("click", () => saveSettings({ alert_url: "" }));
+    al.append(test, " ", rm);
+  }
   $("s-own").value = st.own_ips.join(", ");
   const fw = st.forward;
   $("s-fw-on").checked = fw.enabled;
@@ -1607,12 +1623,13 @@ async function saveSettings(body) {
 }
 $("settings-form").addEventListener("submit", (ev) => {
   ev.preventDefault();
-  const body = { auto_lookup: $("s-auto").checked, auto_iprep: $("s-iprep").checked, abuse_auto: $("s-ab-auto").checked, sync_seconds: Number($("s-sync").value) || 60,
+  const body = { auto_lookup: $("s-auto").checked, auto_iprep: $("s-iprep").checked, abuse_auto: $("s-ab-auto").checked, sync_seconds: Number($("s-sync").value) || 60, history_days: Number($("s-history").value) || 7,
     own_ips: $("s-own").value.split(",").map((x) => x.trim()).filter(Boolean), forward: fwBody() };
   if ($("s-vt").value.trim()) body.virustotal_api_key = $("s-vt").value.trim();
   if ($("s-mb").value.trim()) body.malwarebazaar_auth_key = $("s-mb").value.trim();
   if ($("s-ab").value.trim()) body.abuseipdb_api_key = $("s-ab").value.trim();
   if ($("s-gn").value.trim()) body.greynoise_api_key = $("s-gn").value.trim();
+  if ($("s-alert").value.trim()) body.alert_url = $("s-alert").value.trim();
   saveSettings(body);
 });
 $("status-refresh").addEventListener("click", () => loadVmStatus(true));

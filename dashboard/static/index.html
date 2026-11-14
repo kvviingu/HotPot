@@ -625,6 +625,15 @@
                 <input id="s-sync" type="number" min="15" max="3600" step="1">
               </div>
               <div class="field">
+                <label for="s-history">Days of history to load (more days need more memory)</label>
+                <input id="s-history" type="number" min="1" max="365" step="1">
+              </div>
+              <div class="field">
+                <label for="s-alert">Alert address for serious problems (optional)</label>
+                <input id="s-alert" type="password" spellcheck="false" autocomplete="off" aria-describedby="s-alert-state">
+                <p class="note" id="s-alert-state"></p>
+              </div>
+              <div class="field">
                 <label for="s-own">My own IPs, hidden unless "My IP" is on (comma separated)</label>
                 <input id="s-own" type="text" spellcheck="false">
               </div>

@@ -2,6 +2,7 @@
 import os
 import sys
 import unittest
+import unittest.mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "dashboard"))
@@ -94,6 +95,37 @@ class RepeatedBackendEvents(unittest.TestCase):
             self.assertFalse(server.fold_repeat(seen, {"type": "exec", "t": T, "exe": "/bin/ls", "argv": ["ls", str(i)]}, "1:1"))
             self.assertFalse(server.fold_repeat(seen, {"type": "exec", "t": T, "exe": "/bin/id", "argv": ["id"]}, f"{i}:1"))
             self.assertFalse(server.fold_repeat(seen, {"type": "file", "t": T, "path": "/tmp/x", "sha256": "a" * 64}, "1:1"))
+
+
+class LessInMemory(unittest.TestCase):
+    def test_decoy_connect_and_close_lines_are_dropped_after_the_first_few(self):
+        st, kept = {}, []
+        for i in range(1000):
+            for ev in ("connect", "ntlm", "close"):
+                e = {"ip": IP, "svc": "rdp", "event": ev, "t": T + i * 1000}
+                if not server.quiet_decoy(st, e):
+                    kept.append(ev)
+        self.assertEqual(kept.count("ntlm"), 1000)                       # every login attempt stays
+        self.assertEqual(kept.count("connect") + kept.count("close"), server.DECOY_QUIET_KEEP)
+
+    def test_a_new_visit_starts_the_count_again(self):
+        st = {}
+        for i in range(100):
+            server.quiet_decoy(st, {"ip": IP, "svc": "smb", "event": "connect", "t": T + i})
+        later = T + server.WEB_SESSION_GAP_MS + 5000
+        self.assertFalse(server.quiet_decoy(st, {"ip": IP, "svc": "smb", "event": "connect", "t": later}))
+        self.assertFalse(server.quiet_decoy(st, {"ip": "45.155.205.11", "svc": "smb", "event": "connect", "t": T}))
+
+    def test_only_recent_log_files_are_loaded(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            path = f.name
+        self.addCleanup(os.unlink, path)
+        now = os.path.getmtime(path)
+        with unittest.mock.patch.dict(server.CFG, {"history_days": 7}):
+            self.assertTrue(server.recent_file(path, now + 6 * 86400))
+            self.assertFalse(server.recent_file(path, now + 8 * 86400))
+        self.assertFalse(server.recent_file(path + ".missing"))
 
 
 if __name__ == "__main__":

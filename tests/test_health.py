@@ -57,5 +57,43 @@ class Health(unittest.TestCase):
         self.assertLessEqual(len(p[0]["detail"]), 300)
 
 
+class Alerts(unittest.TestCase):
+    BAD = [{"id": "backend-load", "level": "bad", "title": "Backend VM is overloaded (load 92)", "detail": "10.0.1.9 hung"}]
+    WARN = [{"id": "quiet-web_log", "level": "warn", "title": "Nothing has reached the web honeypot", "detail": ""}]
+
+    def test_only_https_links_are_accepted(self):
+        self.assertEqual(health.clean_alert_url("  "), "")
+        self.assertEqual(health.clean_alert_url(" https://ntfy.sh/my-topic "), "https://ntfy.sh/my-topic")
+        for bad in ("http://ntfy.sh/x", "ntfy.sh/x", "https://", "https://a.example/x y", "file:///etc/passwd"):
+            with self.assertRaises(ValueError):
+                health.clean_alert_url(bad)
+
+    def test_a_problem_is_announced_once_then_resolved_once(self):
+        st = {}
+        self.assertEqual(health.alert_plan(self.BAD, st, NOW), [("HotPot: Backend VM is overloaded (load 92)", "")])
+        self.assertEqual(health.alert_plan(self.BAD, st, NOW + 300), [])
+        self.assertEqual(health.alert_plan([], st, NOW + 600), [("HotPot: resolved", "Backend VM is overloaded (load 92)")])
+        self.assertEqual(health.alert_plan([], st, NOW + 900), [])
+
+    def test_a_flapping_problem_is_not_repeated_within_six_hours(self):
+        st = {}
+        health.alert_plan(self.BAD, st, NOW)
+        health.alert_plan([], st, NOW + 300)
+        self.assertEqual(health.alert_plan(self.BAD, st, NOW + 600), [])
+        self.assertEqual(len(health.alert_plan(self.BAD, st, NOW + 7 * 3600)), 1)
+
+    def test_warnings_and_details_are_never_sent(self):
+        self.assertEqual(health.alert_plan(self.WARN, {}, NOW), [])
+        sent = health.alert_plan(self.BAD, {}, NOW)
+        self.assertNotIn("10.0.1.9", repr(sent))
+
+    def test_request_shape_per_receiver(self):
+        r = health.alert_request("https://ntfy.sh/topic", "HotPot: x", "")
+        self.assertEqual((r.get_method(), r.data, r.get_header("Title")), ("POST", b"HotPot: x", "HotPot: x"))
+        r = health.alert_request("https://discord.com/api/webhooks/1/abc", "HotPot: resolved", "disk")
+        self.assertEqual(r.data, b'{"content": "HotPot: resolved\\ndisk"}')
+        self.assertIn(b'"text"', health.alert_request("https://hooks.slack.com/services/x", "t").data)
+
+
 if __name__ == "__main__":
     unittest.main()

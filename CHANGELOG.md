@@ -5,6 +5,14 @@ prints the one you have.
 
 ## Unreleased
 
+* **Alerts on your phone:** an optional alert address in Settings (ntfy, Discord or Slack) gets a short
+  message when a serious problem starts and when it is over. Titles only, no addresses.
+* **Days of history to load** (Settings, 7 by default) caps the dashboard's memory as logs pile up. Older
+  logs stay on disk.
+* **Half the memory again:** the dashboard no longer keeps the "connected" and "closed" lines of
+  brute-force floods on the RDP and SMB decoys past the first 40 per visit, and works out what a decoy
+  event means when it is shown instead of storing it. About 1 GB became about 500 MB.
+
 * **Health banner:** the dashboard says in plain words when something is wrong (sensor unreachable, a VM
   overloaded or not answering, disk filling up, a service or the collector stopped, a honeypot gone
   quiet), with optional desktop notifications.

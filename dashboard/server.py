@@ -83,6 +83,7 @@ DEFAULT_CONFIG = {
     "backend_host": "",
     "backend_user": "ubuntu",
     "sync_seconds": 60,
+    "history_days": 7,
     "port": 8787,
 }
 
@@ -306,6 +307,9 @@ def settings_view() -> dict:
     out["auto_lookup"] = bool(SETTINGS.get("auto_lookup", False))
     out["auto_iprep"] = bool(SETTINGS.get("auto_iprep", False))
     out["sync_seconds"] = int(CFG.get("sync_seconds", 60))
+    out["history_days"] = history_days()
+    au = SETTINGS.get("alert_url") or ""
+    out["alert_url"] = {"set": bool(au), "hint": health.alert_host(au)}       # the link itself is a secret
     out["own_ips"] = list(CFG.get("own_ips", []))
     out["forward"] = forward.view(SETTINGS.get("forward") or {})
     out["forward_status"] = FORWARDER.status
@@ -395,6 +399,12 @@ def save_settings(req: dict) -> dict:
         for k in ("auto_lookup", "auto_iprep", "abuse_auto"):
             if k in req:
                 SETTINGS[k] = bool(req[k])
+        if req.get("alert_url") is not None:            # absent or null = keep, "" = remove
+            v = health.clean_alert_url(req["alert_url"])
+            if v:
+                SETTINGS["alert_url"] = v
+            else:
+                SETTINGS.pop("alert_url", None)
         if isinstance(req.get("forward"), dict):
             old = SETTINGS.get("forward") or {}
             new = SETTINGS["forward"] = forward.clean(req["forward"], old)
@@ -402,6 +412,8 @@ def save_settings(req: dict) -> dict:
                 FORWARDER.restart()  # switched on or pointed elsewhere: new events only, not the backlog
         if "sync_seconds" in req:
             CFG["sync_seconds"] = max(15, min(3600, int(req["sync_seconds"])))
+        if "history_days" in req:
+            CFG["history_days"] = max(1, min(365, int(req["history_days"])))
         if "own_ips" in req:
             ips = [str(x).strip() for x in (req["own_ips"] or []) if str(x).strip()][:20]
             if any(not IP_RE.match(x) for x in ips):
@@ -420,7 +432,7 @@ def save_settings(req: dict) -> dict:
         if os.path.exists(CONFIG_PATH):
             with open(CONFIG_PATH, encoding="utf-8") as f:
                 cfg = json.load(f)
-        cfg.update(sync_seconds=CFG["sync_seconds"], own_ips=CFG.get("own_ips", []))
+        cfg.update(sync_seconds=CFG["sync_seconds"], own_ips=CFG.get("own_ips", []), history_days=history_days())
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
     return settings_view()
@@ -1417,11 +1429,35 @@ def health_now() -> list:
         return [{"id": "health", "level": "warn", "title": "The health check failed", "detail": type(e).__name__}]
 
 
+ALERT_STATE = {}            # what was announced to the alert address (health.alert_plan)
+
+
+def send_alerts() -> None:
+    """Tell the alert address (Settings) about serious problems that are new or over. Titles only."""
+    url = SETTINGS.get("alert_url")
+    if not url:
+        ALERT_STATE.clear()
+        return
+    for title, body in health.alert_plan(health_now(), ALERT_STATE, time.time())[:5]:
+        try:
+            health.send_alert(url, title, body)
+        except Exception:
+            pass                                    # the banner still shows it; try the next problem
+
+
+def alert_test() -> dict:
+    url = SETTINGS.get("alert_url")
+    if not url:
+        raise ValueError("save an alert address first")
+    return {"status": health.send_alert(url, "HotPot: test alert", "Alerts from your dashboard will look like this.")}
+
+
 def health_loop() -> None:
     time.sleep(40)                                  # let the first sync finish
     while True:
         try:
             vm_status()
+            send_alerts()
         except Exception:
             pass
         time.sleep(HEALTH_EVERY)
@@ -1435,6 +1471,24 @@ def sync_loop() -> None:
 
 # ----------------------------------------------------------------------------- parsing
 
+def history_days() -> int:
+    try:
+        return max(1, min(365, int(CFG.get("history_days", 7))))
+    except (TypeError, ValueError):
+        return 7
+
+
+def recent_file(path: str, now: float = None) -> bool:
+    """Is this mirrored log file inside the history the dashboard loads? Every event is held in memory
+    (about 100 MB per day of logs on a busy sensor), so only the last history_days are read. A rotated
+    file stops changing, so its modification time is when its newest line arrived. Older files stay on
+    disk for forwarding and for a longer history later."""
+    try:
+        return os.path.getmtime(path) >= (now or time.time()) - history_days() * 86400
+    except OSError:
+        return False
+
+
 def read_lines(prefix: str):
     if not os.path.isdir(MIRROR):
         return
@@ -1444,7 +1498,7 @@ def read_lines(prefix: str):
     # the events take by about a third.
     memo, drop_ts = {}, prefix in ("decoys", "backend")
     for fn in sorted(os.listdir(MIRROR)):
-        if not fn.startswith(prefix + "__"):
+        if not fn.startswith(prefix + "__") or not recent_file(os.path.join(MIRROR, fn)):
             continue
         with open(os.path.join(MIRROR, fn), "rb") as f:
             for line in f:
@@ -1791,7 +1845,7 @@ def live_hits(web_events: list, by_sid: dict, decoys: list, keep: int = LIVE_KEE
             out.append(h)
     for x in decoys:
         for e in x["_events"][-50:]:
-            a = e.get("_a")
+            a = act(e)
             if a:
                 out.append({"t": e["t"], "ip": x["ip"], "kind": x["kind"], "type": "command", "ok": True,
                             "what": a["title"][:120]})
@@ -2288,17 +2342,24 @@ def decoy_action(e: dict) -> dict:
             "payload": s(payload, 2000), "urls": urls}
 
 
+def act(e: dict):
+    """What a decoy event means, worked out when asked. Keeping it on each of 160,000 events cost 150 MB;
+    the event only remembers that it is an action ("_a")."""
+    return decoy_action(e) if e.get("_a") else None
+
+
 def make_decoy(ip: str, svc: str, evs: list) -> dict:
-    acts = []
+    acts, meaning = [], []
     for e in evs:
         a = decoy_action(e)
         if a:
-            e["_a"] = a
+            e["_a"] = True
             acts.append(e)
+            meaning.append(a)
     ts = [e["t"] for e in acts]
     gaps, med, cv = gap_stats(ts)
-    stage = max([e["_a"]["stage"] for e in acts], default=0)
-    flags = list(dict.fromkeys(f for e in acts for f in e["_a"]["flags"]))
+    stage = max([a["stage"] for a in meaning], default=0)
+    flags = list(dict.fromkeys(f for a in meaning for f in a["flags"]))
     reasons, score = [], 0
     v, score = timing_verdict(len(acts), med, cv, score, reasons)
     if v == "script" or len(acts) < 3:
@@ -2322,15 +2383,15 @@ def make_decoy(ip: str, svc: str, evs: list) -> dict:
                         for e in acts if isinstance(e.get("attrs"), dict))
         client = progs.most_common(1)[0][0] if progs else ""
     titles = []
-    for e in acts:
-        t = e["_a"]["title"][:70]
+    for a in meaning:
+        t = a["title"][:70]
         if t not in titles:
             titles.append(t)
     summary = (" → ".join(titles[:3]) + (f"  (+{len(acts) - 3} more)" if len(acts) > 3 else "")) if titles else "Connected only"
     t0 = evs[0]["t"]
     seq = []
-    for e in acts:
-        ln = norm_cmd(e["_a"]["line"])
+    for a in meaning:
+        ln = norm_cmd(a["line"])
         if ln and (not seq or seq[-1] != ln):
             seq.append(ln)
     return {
@@ -2343,14 +2404,36 @@ def make_decoy(ip: str, svc: str, evs: list) -> dict:
     }
 
 
+COWRIE_UNUSED = ("message", "sensor", "uuid")      # nothing reads them; a third of what an event holds
+# A brute-forcer opens tens of thousands of connections to the RDP and SMB decoys. The login attempts all
+# count; the bare "connected" and "closed" lines around them say nothing new after the first few.
+DECOY_QUIET_KEEP = 40
+
+
+def quiet_decoy(state: dict, e: dict) -> bool:
+    """True for a connect/close line past the first DECOY_QUIET_KEEP of one visit (same address and service,
+    no pause longer than a session gap): it can be dropped while reading, before it takes any memory."""
+    key = (e["ip"], e["svc"])
+    st = state.get(key)
+    if st is None or e["t"] - st[1] > WEB_SESSION_GAP_MS:
+        st = state[key] = [0, e["t"]]
+    st[1] = max(st[1], e["t"])
+    if e.get("event") not in ("connect", "close"):
+        return False
+    st[0] += 1
+    return st[0] > DECOY_QUIET_KEEP
+
+
 def decoy_sessions() -> tuple:
     by = defaultdict(list)
-    n = 0
+    n, quiet = 0, {}
     for e in read_lines("decoys"):
         n += 1
         if not isinstance(e.get("t"), int) or not e.get("ip") or e.get("svc") not in DECOY_KINDS:
             continue
         e["ip"] = s(e["ip"], 64)
+        if quiet_decoy(quiet, e):
+            continue
         by[(e["ip"], e["svc"])].append(e)
     out = []
     for (ip, svc), evs in by.items():
@@ -2834,7 +2917,7 @@ def attack_tags(sessions: list) -> None:
                 add("T1595.003", x["start"], f"{len(paths)} different paths requested")
         elif k in DECOY_KINDS:
             for e in x["_events"][:3000]:
-                a = e.get("_a")
+                a = act(e)
                 if not a:
                     continue
                 for f in a["flags"]:
@@ -2923,7 +3006,7 @@ def report_data(label: str = "") -> dict:
             elif x["kind"] == "web":
                 paths[s(e.get("path"), 160)] += 1
             elif x["kind"] in DECOY_KINDS and e.get("_a"):
-                decoy[f"{DECOY_KINDS[x['kind']]}: {s(e['_a']['title'], 120)}"] += 1
+                decoy[f"{DECOY_KINDS[x['kind']]}: {s(act(e)['title'], 120)}"] += 1
     week_camps = Counter(x.get("campaign") for x in sel if x.get("campaign"))
     camp_rows = []
     for cid, n in week_camps.most_common(10):
@@ -3118,6 +3201,8 @@ def rebuild() -> None:
         if not e.get("session"):
             continue
         e["t"] = iso_ms(e.get("timestamp"))
+        for k in COWRIE_UNUSED:
+            e.pop(k, None)
         by_sid[str(e["session"])].append(e)
     for sid, evs in by_sid.items():
         sessions.append(make_cowrie(sid, evs))
@@ -3702,7 +3787,7 @@ def build_view(rng: str, include_own: bool) -> dict:
             decoy_funnel[x["stage"]] += 1
             c["decoy_services"][DECOY_KINDS[x["kind"]]] += 1
             for e in x["_events"]:
-                a = e.get("_a")
+                a = act(e)
                 if not a:
                     continue
                 kpi["decoy_actions"] += 1
@@ -3847,7 +3932,7 @@ def build_view(rng: str, include_own: bool) -> dict:
         v["stage"] = max(v["stage"], x["stage"])
         v["last"] = max(v["last"], x["end"])
         for e in x["_events"]:
-            a = e.get("_a")
+            a = act(e)
             if a:
                 v["actions"] += 1
                 v["top"][a.get("line") or a["title"][:60]] += 1
@@ -3967,7 +4052,7 @@ def session_view(sid: str):
         if x["kind"] == "web":
             evs.append(web_event_view(e, gap))
         elif x["kind"] in DECOY_KINDS:
-            a = e.get("_a")
+            a = act(e)
             if a:
                 more = {}
                 if e.get("event") == "request":
@@ -4127,7 +4212,8 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/meta":
             return self.send_json({"token": CSRF, "status": STATUS, "host": CFG["ssh_host"],
                                    "own_ips": CFG.get("own_ips", []), "lines": MODEL["lines"],
-                                   "sync_seconds": CFG.get("sync_seconds", 60), "health": health_now()})
+                                   "sync_seconds": CFG.get("sync_seconds", 60), "health": health_now(),
+                                   "history_days": history_days()})
         if u.path == "/api/data":
             rng = q.get("range", ["24h"])[0]
             return self.send_json(build_view(rng if rng in RANGES else "24h", q.get("own", ["0"])[0] == "1"))
@@ -4229,7 +4315,8 @@ class Handler(BaseHTTPRequestHandler):
                 or not hmac.compare_digest(self.headers.get("X-HP-Token", ""), CSRF):
             return self.send(403, b"forbidden", "text/plain")
         path = urlparse(self.path).path
-        if path in ("/api/settings", "/api/lookup", "/api/iprep", "/api/submit", "/api/scan", "/api/forward-test"):
+        if path in ("/api/settings", "/api/lookup", "/api/iprep", "/api/submit", "/api/scan", "/api/forward-test",
+                    "/api/alert-test"):
             try:
                 n = int(self.headers.get("Content-Length") or 0)
                 req = json.loads(self.rfile.read(min(n, 4000)) or b"{}")
@@ -4237,6 +4324,8 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("bad request")
                 if path == "/api/settings":
                     return self.send_json(save_settings(req))
+                if path == "/api/alert-test":
+                    return self.send_json(alert_test())
                 if path == "/api/forward-test":
                     return self.send_json(forward.test_event(SETTINGS.get("forward") or {}))
                 if path == "/api/iprep":
