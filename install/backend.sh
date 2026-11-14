@@ -34,9 +34,11 @@ chmod 600 /etc/nb-honeypot.conf
 install -m 600 "$SRC/backend.env" /root/backend.env
 strip_cr /root/backend.env "$SRC/backend" "$SRC/cowrie/honeyfs"
 
+# the collector must not run while the installer builds or changes the container: it would store every
+# file the installer writes as an attacker sample. It starts again, watching from now, at the end.
+systemctl stop nb-collect.timer nb-reset.timer nb-collect.service 2>/dev/null || true
 if command -v incus >/dev/null && incus snapshot list "$CT_NAME" -f csv -c n 2>/dev/null | grep -qx clean; then
   step "Rolling $CT_NAME back to its clean snapshot before updating it"
-  systemctl stop nb-collect.timer nb-reset.timer 2>/dev/null || true
   incus snapshot restore "$CT_NAME" clean
   incus start "$CT_NAME" 2>/dev/null || true
 fi

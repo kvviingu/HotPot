@@ -8,6 +8,9 @@ prints the one you have.
 * **AbuseIPDB reports skip research scanners:** networks of known internet research scanners (Censys,
   Shodan, Shadowserver, Modat and others) are no longer reported, even without a GreyNoise lookup.
   Earlier runs had reported a few of them for reading a decoy's data.
+* **Rebuilding the backend container no longer floods Samples:** the installer now pauses the collector
+  for every install, not only when it updates an existing container. A rebuild had stored about 1,700
+  of the new container's own system files as samples.
 * **Same kernel everywhere:** `hotpot deploy` reads the backend's real kernel and Ubuntu version and
   uses them in the fake shell (`uname`, `/proc/version`, `dmesg`, `hostnamectl`, the motd) and the decoy
   services (Redis, Docker, Elasticsearch, Kubernetes). Before, they claimed an older kernel than the
