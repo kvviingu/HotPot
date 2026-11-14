@@ -28,6 +28,25 @@ nothing.
 * LLM-style shell habits: section-header echoes, plain-English comments, `|| echo` fallbacks, heredocs,
 * reading the bait files.
 
+### Measuring it
+
+The classes are heuristics, so check them against sessions whose origin you know. `tools/agent_eval.py`
+makes such sessions against your own honeypot, from the PC whose address is in the dashboard's own IPs
+(they stay out of the normal views, the indicator export and AbuseIPDB reports), and keeps a label for
+each in `dashboard/data/eval_labels.jsonl`. It needs `pip install paramiko`.
+
+| Command | Makes |
+|---|---|
+| `python tools/agent_eval.py script` | scripted sessions: no pauses, a fixed 5 s sleep, random sleeps, a botnet survey one-liner |
+| `python tools/agent_eval.py agent` | a test agent: a free OpenRouter model reads each output and picks the next command |
+| `python tools/agent_eval.py mark agent --tool claude-code` | a label for a session you run yourself with a real agent tool (also `mark human --tool putty`) |
+| `python tools/agent_eval.py report` | the result: sessions per true kind and dashboard class, overall accuracy, how many agents were caught, how many agent alarms were true (`--misses` lists the wrong calls) |
+
+The test agent sends the honeypot's shell output to OpenRouter. That output carries the decoy identity,
+as it does for any attacker's model; the sensor's and your own addresses are replaced first. The `steady`
+and `random-sleep` scripts are the hard cases: a script that sleeps between varied commands looks much
+like an agent thinking.
+
 ## Tripwires
 
 Each canary token sits in exactly one place, so a hit tells you what the visitor read:

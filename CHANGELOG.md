@@ -5,6 +5,10 @@ prints the one you have.
 
 ## Unreleased
 
+* **Detection test:** `tools/agent_eval.py` runs scripted sessions and a test AI agent against your own
+  honeypot, lets you label sessions you run with real tools, and reports how often the dashboard's
+  classes were right.
+
 * **AI pages tab:** lists the pages the web honeypot's AI fallback wrote and saved, with the request,
   the model, how often each was served and who asked for it first. Click a path to read the page, or
   Preview to see an HTML page rendered in a sandbox that runs no scripts and loads nothing from outside.
