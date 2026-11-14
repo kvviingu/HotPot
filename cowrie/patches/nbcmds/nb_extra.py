@@ -400,7 +400,7 @@ class Command_getconf(HoneyPotCommand):
             self.exit_code = 1
 
 
-DMESG = """[    0.000000] Linux version 6.8.0-1013-oracle (buildd@lcy02-amd64-085) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.2.0-23ubuntu4) 13.2.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #13-Ubuntu SMP PREEMPT_DYNAMIC Mon Sep 16 14:43:28 UTC 2024 (Ubuntu 6.8.0-1013.14-oracle 6.8.12)
+DMESG = """[    0.000000] Linux version 6.8.0-1013-oracle (buildd@lcy02-amd64-085) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.2.0-23ubuntu4) 13.2.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #13-Ubuntu SMP PREEMPT_DYNAMIC Mon Sep 16 14:43:28 UTC 2024
 [    0.000000] Command line: BOOT_IMAGE=/vmlinuz-6.8.0-1013-oracle root=UUID=4e9a1c2f-6b0d-4a5e-9d1b-3f7a8c2e5d10 ro console=tty1 console=ttyS0 nvme.shutdown_timeout=10 libiscsi.debug_libiscsi_eh=1 crash_kexec_post_notifiers
 [    0.000000] KERNEL supported cpus:
 [    0.000000]   Intel GenuineIntel

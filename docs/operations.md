@@ -115,6 +115,9 @@ runs outside what attackers see and keeps its name.
 * A backend container that already exists gets the new host name and files, but keeps the old
   persona's files beside them. For a clean switch, delete it first:
   `./hotpot ssh backend "sudo incus delete -f <CT_NAME>"`, then `./hotpot deploy backend`.
+* The kernel and Ubuntu version are not part of the identity. `./hotpot deploy` reads them from the
+  backend container (or the front VM without a backend) and puts them into the fake shell and the
+  decoy services, so `uname -r` gives the same answer everywhere. Deploy again after a kernel update.
 * `./hotpot identity keep` writes the reference persona. Use it only for VMs that were deployed with
   it before identities existed: the reference values are public.
 

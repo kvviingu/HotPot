@@ -23,6 +23,7 @@ import ipaddress
 import json
 import os
 import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -387,6 +388,33 @@ def cmd_backend(conf, vms):
         die(f"the backend VM install failed (exit {rc}); the log is /var/log/hotpot-install.log on that VM")
 
 
+SYSTEM_PROBE = 'uname -r; uname -v; . /etc/os-release; echo "$VERSION"'
+
+
+def refresh_system(conf, vms):
+    """Read the kernel and Ubuntu version attackers will see in the real shell (the backend container,
+    or the front VM without a backend) and keep them in persona.json, so the fake shell and the decoy
+    services claim the same system."""
+    if backend_on(conf):
+        ct = conf.get("CT_NAME", "")
+        remote = (f"sudo incus exec {shlex.quote(ct)} -- sh -c {shlex.quote(SYSTEM_PROBE)} 2>/dev/null "
+                  f"|| sh -c {shlex.quote(SYSTEM_PROBE)}")
+        r = vms.run("backend", remote, capture=True)
+    else:
+        r = vms.run("front", SYSTEM_PROBE, capture=True)
+    lines = r.stdout.decode("utf-8", "replace").splitlines() if r.returncode == 0 else []
+    got = persona.system_from(*lines[:3]) if len(lines) >= 3 else {}
+    if not got:
+        warn("could not read the kernel version; the fake shell keeps the last one it had")
+        return
+    p = persona.load()
+    if all(p.get(k) == v for k, v in got.items()):
+        return
+    p.update(got)
+    persona.save(p)
+    say(f"The fake shell and decoys now claim kernel {got.get('kernel', '?')}, Ubuntu {got.get('os', '?')}")
+
+
 def cmd_persona(conf, vms):
     if not backend_on(conf):
         die("BACKEND_ENABLED is not 1 in honeypot.conf")
@@ -416,6 +444,9 @@ def show_identity(p):
     print(f"  domain:    {p['brand'].lower()}-{p['industry'].lower()}.com, internal {p['brand'].lower()}.local")
     print(f"  canaries:  {p['check']}-<lure>")
     print(f"  tripwire credentials: {len(p['creds'])} (in persona.json)")
+    sysv = {k: p.get(k) or v for k, v in persona.SYSTEM_REFERENCE.items()}
+    print(f"  system:    Ubuntu {sysv['os']}, kernel {sysv['kernel']}"
+          + ("" if p.get("kernel") else "  (the repo's values; hotpot deploy reads the real ones)"))
 
 
 def cmd_identity(conf, action):
@@ -967,6 +998,7 @@ def deploy_all(conf, target="all"):
         say("Checking both VMs first (changes nothing)")
         if cmd_check(conf, vms) != 0 and not yes("Some checks failed (see FAIL above). Deploy anyway?", False):
             return 1
+    refresh_system(conf, vms)
     if target in ("all", "front"):
         cmd_front(conf, vms)
     if target in ("all", "backend") and (backend_on(conf) or target == "backend"):

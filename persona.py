@@ -37,6 +37,16 @@ REFERENCE = {
     },
 }
 
+# The system the repo's files claim (fake shell, decoy services). `hotpot deploy` reads the real values
+# from the backend and stores them in persona.json, so `uname` in the real shell and the fake one agree.
+SYSTEM_REFERENCE = {
+    "kernel": "6.8.0-1013-oracle",
+    "kbuild": "#13-Ubuntu SMP PREEMPT_DYNAMIC Mon Sep 16 14:43:28 UTC 2024",
+    "os": "24.04.1 LTS",
+}
+SYSTEM_RE = {"kernel": r"[0-9][0-9A-Za-z.+_-]{2,60}", "kbuild": r"#[0-9A-Za-z .:~+_-]{4,120}",
+             "os": r"[0-9]{2}\.[0-9]{2}(\.[0-9]{1,2})? LTS"}
+
 BRANDS = ["Ashford", "Bayline", "Blackwater", "Brightwater", "Clearwater", "Coldbrook", "Eastgate", "Fairhaven",
           "Glenmore", "Greystone", "Harborline", "Highmoor", "Ironbridge", "Kestrel", "Kingsport", "Lakeside",
           "Larkspur", "Millbrook", "Northgate", "Oakridge", "Pinecrest", "Redwood", "Ridgeway", "Riverside",
@@ -101,6 +111,9 @@ def load(path: str = None) -> dict:
                 p[k] = ref[k]
         p["tokens"] = {k: str(p.get("tokens", {}).get(k, v)) for k, v in ref["tokens"].items()}
         p["creds"] = {k: str(p.get("creds", {}).get(k, v)) for k, v in ref["creds"].items()}
+        for k, rx in SYSTEM_RE.items():
+            if not isinstance(p.get(k), str) or not re.fullmatch(rx, p[k]):
+                p.pop(k, None)
         return p
     except (OSError, ValueError, AttributeError):
         return reference()
@@ -113,8 +126,22 @@ def save(p: dict, path: str = None) -> None:
         f.write("\n")
 
 
+def system_from(release: str, build: str, os_version: str) -> dict:
+    """Kernel and Ubuntu values read from a VM (`uname -r`, `uname -v`, VERSION in /etc/os-release),
+    the ones that pass the checks; anything odd keeps the repo's value."""
+    os_version = re.sub(r"\s*\(.*\)$", "", os_version.strip())
+    got = {"kernel": release.strip(), "kbuild": build.strip(), "os": os_version}
+    return {k: v for k, v in got.items() if re.fullmatch(SYSTEM_RE[k], v)}
+
+
 def pairs(p: dict) -> list:
     """(reference value, this install's value) for every string to swap, longest first."""
+    out = identity_pairs(p)
+    out += [(v, p[k]) for k, v in SYSTEM_REFERENCE.items() if p.get(k) and p[k] != v]
+    return sorted(out, key=lambda ab: -len(ab[0]))
+
+
+def identity_pairs(p: dict) -> list:
     r = REFERENCE
     rb, ri, pb, pi = r["brand"], r["industry"], p["brand"], p["industry"]
     out = [(f"{r['check']}-{r['tokens'][k]}", f"{p['check']}-{p['tokens'][k]}") for k in r["tokens"]]
@@ -140,7 +167,7 @@ def pairs(p: dict) -> list:
 
 
 def is_reference(p: dict) -> bool:
-    return not pairs(p)
+    return not identity_pairs(p)
 
 
 def substitute(text: str, p: dict, prs: list = None) -> str:

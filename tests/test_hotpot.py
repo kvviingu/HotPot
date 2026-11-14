@@ -59,6 +59,39 @@ class IdentityTest(unittest.TestCase):
             self.assertEqual(p["host"], persona.REFERENCE["host"])
 
 
+class SystemTest(unittest.TestCase):
+    REAL = ("7.0.0-1013-oracle", "#13~24.04.1-Ubuntu SMP PREEMPT Fri Sep 25 09:28:21 UTC 2026",
+            "24.04.5 LTS (Noble Numbat)")
+
+    def test_read_values(self):
+        self.assertEqual(persona.system_from(*self.REAL),
+                         {"kernel": self.REAL[0], "kbuild": self.REAL[1], "os": "24.04.5 LTS"})
+
+    def test_odd_values_are_dropped(self):
+        self.assertEqual(persona.system_from("$(reboot)", "no hash", "Arch Linux"), {})
+
+    def test_swapped_in_files_but_not_identity(self):
+        p = persona.reference()
+        p.update(persona.system_from(*self.REAL))
+        self.assertTrue(persona.is_reference(p))     # the kernel is not part of the identity
+        text = ("Welcome to Ubuntu 24.04.1 LTS (GNU/Linux 6.8.0-1013-oracle x86_64)\n"
+                "#13-Ubuntu SMP PREEMPT_DYNAMIC Mon Sep 16 14:43:28 UTC 2024\n26.1.3-0ubuntu1~24.04.1")
+        out = persona.substitute(text, p)
+        self.assertIn("Ubuntu 24.04.5 LTS (GNU/Linux 7.0.0-1013-oracle x86_64)", out)
+        self.assertIn(self.REAL[1], out)
+        self.assertIn("26.1.3-0ubuntu1~24.04.1", out)   # a package version, not the OS release
+
+    def test_bad_saved_values_are_ignored(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "persona.json")
+            p = persona.reference()
+            p.update({"kernel": "6.9; rm -rf /", "os": "24.04.5 LTS"})
+            persona.save(p, path)
+            got = persona.load(path)
+        self.assertNotIn("kernel", got)
+        self.assertEqual(got["os"], "24.04.5 LTS")
+
+
 class BundleTest(unittest.TestCase):
     def test_no_reference_value_reaches_the_vms(self):
         p = persona.generate("10.0.0.99")
