@@ -1820,6 +1820,30 @@ function renderSamples() {
     (d.scanning ? "Scanning now…" : parts.join("; ") || "Not scanned yet.");
   $("samples-foot").textContent = `Rules live in ${d.rules_dir}. Add any .yar files there; every scan sends the whole set. ` +
     "Scans run on the VMs every 15 minutes, so samples never leave them.";
+  renderDropped(d.dropped);
+}
+const DROPPED_WHY = { near_duplicate: "only numbers changed", version_cap: "over 5 versions", other: "other" };
+function renderDropped(dr) {
+  const box = $("dropped"), body = $("dropped-table").tBodies[0];
+  box.hidden = !dr || !dr.total;
+  if (box.hidden) return;
+  clear(body);
+  $("dropped-sum").textContent = `Versions not stored: ${fmtN(dr.total)} ` + (dr.total === 1 ? "version" : "versions") +
+    ` of ${fmtN(dr.path_count)} ` + (dr.path_count === 1 ? "file" : "files");
+  for (const g of dr.paths) {
+    const why = el("td", "why");
+    for (const [k, n] of Object.entries(g.why)) why.append(el("div", "", `${fmtN(n)} × ${DROPPED_WHY[k] || k}`));
+    const last = el("td", "file");
+    const sha = el("div", "note mono sha", g.sha);
+    sha.title = "SHA-256 of the newest version that was not stored";
+    last.append(sha);
+    if (g.size != null) last.append(el("div", "note", fmtBytes(g.size)));
+    const tr = el("tr");
+    tr.append(el("td", "t", fmtTime(g.last)), el("td", "mono", g.path), el("td", "num", fmtN(g.count)), why, last);
+    body.append(tr);
+  }
+  $("dropped-foot").textContent = dr.path_count > dr.paths.length
+    ? `Showing the ${fmtN(dr.paths.length)} most recent of ${fmtN(dr.path_count)} files.` : "";
 }
 
 // ---- IP reputation ----------------------------------------------------------------------------

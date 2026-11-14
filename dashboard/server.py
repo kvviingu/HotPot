@@ -831,11 +831,43 @@ def submit_sample(sha: str, where: str, service: str) -> dict:
     return res
 
 
+DROPPED_KEEP = 20000     # newest file_capped events kept in the model
+DROPPED_PATHS = 300      # paths listed under "Versions not stored"
+DROPPED_WHY = {"near_duplicate", "version_cap"}
+
+
+def dropped_view(capped: list) -> dict:
+    """Versions of changed files the backend collector did not store, grouped by path.
+
+    Each `file_capped` event still carries the hash and size of the version it dropped, and the nightly
+    or early reset harvests the file's final state, so nothing is lost without a trace."""
+    groups = {}
+    for e in capped:
+        path, sha = s(e.get("path"), 300), s(e.get("sha256"), 64)
+        if not path or not SHA_RE.match(sha):
+            continue
+        t = e["t"]
+        g = groups.get(path)
+        if not g:
+            g = groups[path] = {"path": path, "count": 0, "why": {}, "first": t, "last": t, "sha": sha, "size": None}
+        g["count"] += 1
+        why = s(e.get("why"), 20)
+        why = why if why in DROPPED_WHY else "other"
+        g["why"][why] = g["why"].get(why, 0) + 1
+        g["first"] = min(g["first"], t)
+        if t >= g["last"]:
+            g["last"], g["sha"] = t, sha
+            g["size"] = e["size"] if isinstance(e.get("size"), int) else None
+    rows = sorted(groups.values(), key=lambda g: -g["last"])
+    return {"paths": rows[:DROPPED_PATHS], "path_count": len(rows), "total": sum(g["count"] for g in rows)}
+
+
 def samples_view() -> dict:
     """Every captured sample with where it came from, what it is, and what others say about it."""
     with lock:
         sessions = MODEL["sessions"]
         loose = MODEL.get("backend", {}).get("unattributed_files", [])
+        capped = MODEL.get("backend", {}).get("capped", [])
     own = own_set()
     out = {}
 
@@ -898,7 +930,7 @@ def samples_view() -> dict:
         rows.append(r)
     rows.sort(key=lambda r: -(r["last"] or 0))
     return {"samples": rows, "scans": scans, "scanning": SCAN["running"], "rules": len(desc),
-            "rules_dir": YARA_DIR}
+            "rules_dir": YARA_DIR, "dropped": dropped_view(capped)}
 
 
 # ----------------------------------------------------------------------------- session replay (Cowrie ttylogs)
@@ -1627,9 +1659,12 @@ def attach_backend(sessions: list) -> dict:
     Each backend event names its login root ("pid:t" of the `sshd -R` or tcpd/telnetd exec); a root is
     matched to the Cowrie session whose backend connection opened closest in time (same protocol)."""
     roots = defaultdict(list)
-    loose, resets, guards = [], [], []
+    loose, resets, guards, capped = [], [], [], []
     for e in read_lines("backend"):
         if not isinstance(e.get("t"), int):
+            continue
+        if e.get("type") == "file_capped":   # a changed file the collector chose not to store again
+            capped.append(e)
             continue
         if e.get("type") == "reset":
             resets.append(e)
@@ -1719,7 +1754,8 @@ def attach_backend(sessions: list) -> dict:
             x["stage_label"] = SSH_STAGES[x["stage"]]
             x["interest"] += 6 + len(caps) * 2
     resets.sort(key=lambda e: e["t"])
-    return {"unattributed_files": unattributed, "roots": len(roots), "matched": len(matched),
+    return {"unattributed_files": unattributed, "capped": capped[-DROPPED_KEEP:],
+            "roots": len(roots), "matched": len(matched),
             "resets": [{"t": e["t"], "reason": s(e.get("reason"), 40), "harvested": e.get("harvested"),
                         "paths": [s(p, 300) for p in (e.get("paths") or [])[:20]]} for e in resets[-200:]]}
 

@@ -75,6 +75,12 @@ Each sample has three actions:
 * **Upload…**: sends the file itself to VirusTotal or MalwareBazaar, which shares it with their users.
   Asks you to confirm first.
 
+**Versions not stored**, under the table, lists changed files the backend chose not to keep again:
+versions past the first 5 since the container started, and text that differs from an earlier sample at
+the same path only in numbers (see [operations.md](operations.md)). Each row shows the path, how many
+versions were skipped and why, and the hash and size of the newest one. The files themselves are gone,
+but the container reset still harvests each file's final state.
+
 ## YARA
 
 Every `.yar` file under `yara/` (the repo ships `yara/rules/hotpot.yar`) goes to both VMs every 15

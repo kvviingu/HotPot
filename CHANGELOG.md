@@ -12,7 +12,8 @@ prints the one you have.
   minute, which filled the Samples tab with more than 100 near-identical copies. Programs, scripts and
   binary files are still always kept. Text at the same path that differs from an earlier sample only in
   standalone numbers (a PID, a counter) is not stored again either, across resets; addresses, ports,
-  keys and URLs still count.
+  keys and URLs still count. The Samples tab lists the skipped versions under "Versions not stored",
+  with the path, how many, why, and the hash of the newest one.
 * **Indicator export** on the Intel tab: attacker IPs, sample hashes, URLs and domains as a STIX 2.1
   bundle, a MISP event, CSV or a plain blocklist, with a TLP marking.
 * **Log forwarding** from the dashboard to syslog (UDP, TCP, TLS), Elasticsearch/OpenSearch, Splunk HEC

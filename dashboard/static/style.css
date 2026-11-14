@@ -477,6 +477,10 @@ button.small:disabled { opacity: .5; cursor: progress; }
 .samples .from .link { font-size: 12.5px; }
 .samples .verdicts { min-width: 220px; max-width: 360px; }
 .flag.yara { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); white-space: normal; }
+details.dropped { margin-top: 14px; border-top: 1px solid var(--hair); padding-top: 10px; }
+details.dropped > summary { cursor: pointer; font-weight: 600; color: var(--ink); }
+details.dropped > .note { max-width: 80ch; }
+.dropped-table td.why { min-width: 11em; }
 details.upload { display: inline-block; }
 details.upload > summary { list-style: none; cursor: pointer; border: 1px solid var(--rule); background: var(--sunk); border-radius: 6px;
   padding: 3px 10px; font-size: 12px; color: var(--ink2); }

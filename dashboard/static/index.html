@@ -377,6 +377,19 @@
         </table>
       </div>
       <p class="note" id="samples-foot"></p>
+      <details class="dropped" id="dropped" hidden>
+        <summary id="dropped-sum">Versions not stored</summary>
+        <p class="note">The backend keeps the first 5 versions of a changed text file until the container restarts,
+          and skips text that differs from an earlier sample at the same path only in numbers (a PID, a counter).
+          The versions below were skipped. Their hashes were logged, and the reset keeps each file's final state.</p>
+        <div class="tablewrap">
+          <table class="grid dropped-table" id="dropped-table">
+            <thead><tr><th>Last skipped</th><th>Path</th><th class="num">Versions</th><th>Why</th><th>Newest skipped version</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="note" id="dropped-foot"></p>
+      </details>
     </div>
   </section>
 
