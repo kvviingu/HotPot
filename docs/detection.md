@@ -9,6 +9,16 @@ Every session gets one class (`CLASSES` in `dashboard/server.py`): Script / scan
 outrank the timing heuristic, because proxy lag can make a bot look slow. These sessions are classed
 "Known bot (signature)" and their agent score is capped near zero.
 
+**People at a terminal.** An SSH session typed from a desktop client (PuTTY, MobaXterm, Termius,
+SecureCRT and similar) or whose commands carry a terminal's bracketed-paste markers (`ESC[200~`) is
+classed Human-like. Its pauses are a person reading and pasting, so they don't count towards the agent
+score. Agent frameworks and bots connect through SSH libraries and never send paste markers.
+
+**Waiting is not thinking.** The pause after a slow command (`apt`, `pip`, `git`, `wget`, `curl`,
+`make`, `sleep`, scanners and the like) is the command running, not someone deciding the next step. Those
+pauses are left out of the timing heuristic; if that leaves fewer than three pauses, timing counts for
+nothing.
+
 ## AI-agent score (0-100)
 
 100 when the session hit a canary token. Otherwise points for:

@@ -5,6 +5,11 @@ prints the one you have.
 
 ## Unreleased
 
+* **Fewer false AI-agent alarms:** SSH sessions typed from a desktop client such as PuTTY, or with pasted
+  commands, now count as human. Pauses after slow commands (installs, downloads) no longer look like an
+  agent "thinking". Two of last week's three suspected agents were a person pasting commands and a
+  script waiting for `apt`.
+
 * **AbuseIPDB reports skip research scanners:** networks of known internet research scanners (Censys,
   Shodan, Shadowserver, Modat and others) are no longer reported, even without a GreyNoise lookup.
   Earlier runs had reported a few of them for reading a decoy's data.

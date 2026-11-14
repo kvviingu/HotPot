@@ -136,6 +136,13 @@ AI_UA = re.compile(r"gptbot|chatgpt|oai-searchbot|claudebot|claude-user|claude-w
 BROWSER_UA = re.compile(r"mozilla/5\.0.*(chrome|firefox|safari|edg)/", re.I)
 HEADLESS = re.compile(r"headless|phantomjs|puppeteer|playwright|selenium", re.I)
 DROPPER = re.compile(r"(wget|curl|tftp|ftpget)\b.*(;|&&|\|)|chmod \+x|/bin/busybox \w+;|cd /tmp.*(wget|curl)", re.I | re.S)
+# Commands that keep the shell busy for a while: the pause after one is waiting, not deciding.
+SLOW_CMD = re.compile(r"(^|[;&|]\s*|\bsudo\s+)(apt(-get)?|yum|dnf|apk|pip3?|npm|git|make|wget|curl|"
+                      r"sleep|tar|unzip|docker|masscan|nmap|zmap|ping|dd|find)\b", re.I)
+# A terminal's bracketed-paste markers around typed text: a person pasted it into an interactive client.
+PASTE_MARK = re.compile(r"\x1b?\[20[01]~")
+# Desktop SSH clients people type into (bots and agent frameworks use SSH libraries instead).
+DESKTOP_SSH = re.compile(r"PuTTY|KiTTY|MobaXterm|Termius|SecureCRT|Xshell|Bitvise|SmarTTY|Tabby|WindTerm", re.I)
 CANARY_CMD = re.compile(re.escape(IDENT["check"]) + r"|agent-verify", re.I)
 # Well-known bot command lines. A match outranks the timing heuristic: proxy lag can make these look slow
 # and "thoughtful", but their exact commands give them away. (name, pattern over all commands joined by \n)
@@ -1481,13 +1488,31 @@ def make_cowrie(sid: str, evs: list) -> dict:
     action_ts = ([ok[0]["t"]] if ok and cmds else []) + [e["t"] for e in cmds]
     gaps, med, cv = gap_stats(action_ts)
     inputs = [s(e.get("input"), 2000) for e in cmds]
+    # the pace that counts as deciding: leave out the waits after slow commands (installs, downloads)
+    acts = ([""] if ok and cmds else []) + inputs
+    think = [g for g, a in zip(gaps, acts) if not SLOW_CMD.search(a)]
+    _, think_med, think_cv = gap_stats([0] + [sum(think[:i + 1]) for i in range(len(think))])
+    pasted = any(PASTE_MARK.search(i) for i in inputs)
+    desktop = bool(DESKTOP_SSH.search(client))
     reasons, score, cls = [], 0, None
     canary = [i for i in inputs if CANARY_CMD.search(i)]
     if canary:
         cls = "agent_confirmed"
         reasons.append("Ran the command that the login banner asks AI agents to run. Scripts never read the banner. "
                        f"It typed: {canary[0][:200]}")
-    v, score = timing_verdict(len(action_ts), med, cv, score, reasons)
+    if pasted or desktop:
+        # a person at a terminal: steady pauses are them reading and pasting, not a model deciding
+        v = None
+        reasons.append("Typed from " + ("a desktop SSH client (" + DESKTOP_SSH.search(client).group(0) + ")"
+                                        if desktop else "an interactive terminal")
+                       + (", pasting commands (the terminal marked them as pasted)" if pasted else ""))
+    else:
+        # with pauses left out, ask for 3 real ones (as many actions as pauses): 2 short gaps prove nothing
+        v, score = timing_verdict(len(think) + (1 if len(think) == len(gaps) else 0), think_med, think_cv,
+                                  score, reasons)
+        if len(think) < len(gaps):
+            reasons.append(f"Left out {len(gaps) - len(think)} pause(s) that followed slow commands "
+                           "(installs, downloads): waiting, not deciding")
     dropper = any(DROPPER.search(i) for i in inputs)
     if len(set(inputs)) >= 4 and not dropper:
         score += 1
@@ -1503,6 +1528,8 @@ def make_cowrie(sid: str, evs: list) -> dict:
                            "so the timing doesn't mean a person or an agent was deciding")
         elif v == "script":
             cls = "script"
+        elif (pasted or desktop) and len(cmds) >= 2:
+            cls = "human_like"
         elif score >= 3:
             cls = "agent_suspected"
         elif dropper:
