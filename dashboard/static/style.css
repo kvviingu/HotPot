@@ -71,6 +71,7 @@ button { cursor: pointer; }
 .views button {
   border: 0; background: none; padding: 0 14px; font-family: var(--f-head); font-size: 14.5px; color: var(--ink2);
   border-bottom: 3px solid transparent; border-top: 3px solid transparent; display: flex; align-items: center; gap: 7px;
+  white-space: nowrap;
 }
 .views button:hover { color: var(--ink); }
 .views button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
@@ -277,9 +278,11 @@ pre { margin: 4px 0 0; padding: 8px 10px; background: var(--sunk); border-radius
   .fig:nth-child(3n + 1) { border-left: 0; }
   .fig:nth-child(n + 4) { border-top: 1px solid var(--hair); }
 }
-@media (max-width: 1100px) {
+@media (max-width: 1360px) {   /* the tabs get a row of their own */
   .bar { grid-template-columns: 1fr auto; padding-top: 8px; }
   .views { grid-row: 2; grid-column: 1 / -1; min-height: 40px; margin: 0 -10px; }
+}
+@media (max-width: 1100px) {
   .hero, .split { grid-template-columns: minmax(0, 1fr); }
   .feed { max-height: 360px; flex: none; }
 }
@@ -481,6 +484,11 @@ details.dropped { margin-top: 14px; border-top: 1px solid var(--hair); padding-t
 details.dropped > summary { cursor: pointer; font-weight: 600; color: var(--ink); }
 details.dropped > .note { max-width: 80ch; }
 .dropped-table td.why { min-width: 11em; }
+.llm-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.llm-table td { vertical-align: top; }
+.llm-table .file { min-width: 260px; max-width: 640px; }
+details.llm-page > summary { cursor: pointer; overflow-wrap: anywhere; }
+.llm-table pre.llm-body { max-height: 360px; overflow: auto; }
 details.upload { display: inline-block; }
 details.upload > summary { list-style: none; cursor: pointer; border: 1px solid var(--rule); background: var(--sunk); border-radius: 6px;
   padding: 3px 10px; font-size: 12px; color: var(--ink2); }

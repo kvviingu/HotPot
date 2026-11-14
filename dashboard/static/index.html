@@ -28,6 +28,7 @@
     <button role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats">Statistics</button>
     <button role="tab" id="tab-intel" data-view="intel" aria-controls="view-intel">Intel</button>
     <button role="tab" id="tab-samples" data-view="samples" aria-controls="view-samples">Samples</button>
+    <button role="tab" id="tab-llm" data-view="llm" aria-controls="view-llm">AI pages</button>
     <button role="tab" id="tab-report" data-view="report" aria-controls="view-report">Report</button>
     <button role="tab" id="tab-status" data-view="status" aria-controls="view-status">Status <span class="led tiny" id="status-led"></span></button>
     <button role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings">Settings</button>
@@ -390,6 +391,32 @@
         </div>
         <p class="note" id="dropped-foot"></p>
       </details>
+    </div>
+  </section>
+
+  <!-- AI-written web pages ---------------------------------------------------------------- -->
+  <section class="view" id="view-llm" role="tabpanel" aria-labelledby="tab-llm" hidden>
+    <div class="panel">
+      <div class="phead">
+        <div>
+          <h2>Pages written by the AI</h2>
+          <p class="note">When a visitor asks the web honeypot for a path it has no page for, a free AI model writes
+            a believable one. The page is saved, so everyone who asks for that path later gets the same answer.
+            Pages that came out as error messages are answered with a plain 404 instead.</p>
+          <p class="note" id="llm-note"></p>
+        </div>
+        <div class="llm-tools">
+          <input id="llm-filter" type="search" placeholder="Filter by path or model" aria-label="Filter by path or model">
+          <button class="sync" id="llm-refresh" type="button">Refresh</button>
+        </div>
+      </div>
+      <div class="tablewrap">
+        <table class="grid llm-table" id="llm-table">
+          <thead><tr><th>Written</th><th>Request and page</th><th>Answer</th><th class="num">Served</th><th>Model</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="note" id="llm-foot"></p>
     </div>
   </section>
 

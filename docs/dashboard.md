@@ -15,6 +15,7 @@ fails and says "backend failed" when only the backend pull fails. Settings: [con
 | Statistics | analytics for the chosen period against the one before it; see [Statistics](#statistics) |
 | Intel | ranked lists: countries, networks, IPs, SSH clients and HASSH, web paths and user agents, logins, usernames, passwords, commands, Suricata alerts, categories, CVEs and TLS fingerprints, ATT&CK techniques and tactics, campaigns, payloads, decoy logins, AI API prompts, programs run, captured files |
 | Samples | captured files with origin, YARA matches and hash lookups |
+| AI pages | pages the web honeypot's LLM fallback wrote and saved; see [AI pages](#ai-pages) |
 | Report | weekly report for any ISO week, including ATT&CK techniques and top IDS alerts |
 | Status | VM, container and timer health, container resets, last IDS event and rule update |
 | Settings | API keys, automatic lookups, log forwarding, sync interval, own IPs; read-only views of the VM deployment, the decoy identity and this install (version, data size, links) |
@@ -80,6 +81,16 @@ versions past the first 5 since the container started, and text that differs fro
 the same path only in numbers (see [operations.md](operations.md)). Each row shows the path, how many
 versions were skipped and why, and the hash and size of the newest one. The files themselves are gone,
 but the container reset still harvests each file's final state.
+
+## AI pages
+
+When the web honeypot has no page for a path, a free model writes one, and the honeypot saves it in the
+`llm_cache` table of `state.sqlite` in the `web-data` volume, so later visitors get the same page. The
+tab reads that table over SSH (read-only, at most every 5 minutes, or when you press Refresh) and lists
+the newest 2,000 pages: when each was written, the request, whether it is served as a page or as a 404
+(pages that came out as error messages), its type and size, and the model. Click a path to read the page
+(the first 16 KB). From the web logs it adds how often each page was served, to how many visitors, and
+who asked for it first. The text was written for an attacker's request: it is shown as plain text only.
 
 ## YARA
 

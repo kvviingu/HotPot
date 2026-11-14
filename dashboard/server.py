@@ -941,6 +941,96 @@ def samples_view() -> dict:
             "rules_dir": YARA_DIR, "dropped": dropped_view(capped)}
 
 
+# ----------------------------------------------------------------------------- AI-written web pages
+
+# The web honeypot asks an LLM for a page when a path has no scripted answer, and keeps each page in
+# llm_cache in its SQLite file, so the next visitor gets the same one. Runs as root, read-only.
+LLM_PAGES_SCRIPT = r'''
+import json, sqlite3, sys
+out = {"pages": [], "usage": []}
+try:
+    c = sqlite3.connect("file:/var/lib/docker/volumes/honeypot_web-data/_data/state.sqlite?mode=ro", uri=True)
+    out["pages"] = c.execute("SELECT key, status, ctype, model, created, length(body), substr(body, 1, 16384) "
+                             "FROM llm_cache ORDER BY created DESC LIMIT 2000").fetchall()
+    out["usage"] = c.execute("SELECT day, count FROM llm_usage ORDER BY day DESC LIMIT 14").fetchall()
+except sqlite3.Error as e:
+    out["error"] = str(e)[:300]
+sys.stdout.write(json.dumps(out))
+'''
+LLM_PAGES_TTL = 300
+LLM_SERVED = ("llm_cached", "llm_new")                 # handlers that answered with a cached or new page
+LLM_ASKED = ("llm_new", "llm_notfound", "notfound_llm_queued")   # requests that made the model write one
+LLM_PAGES = {"t": 0, "pages": [], "usage": [], "error": ""}
+llm_pages_lock = threading.Lock()
+
+
+def note_llm_hits(x: dict, evs: list, acc: dict) -> None:
+    """Count, per cached page, the requests answered from it and the request that made it written."""
+    for e in evs:
+        h = e.get("handler")
+        if h not in LLM_SERVED and h not in LLM_ASKED:
+            continue
+        key = f"{s(e.get('method'), 16)} {s(e.get('path'), 400)}"
+        a = acc.get(key)
+        if a is None:
+            if len(acc) >= 20000:
+                continue
+            a = acc[key] = {"n": 0, "last": 0, "ips": set(), "sessions": [], "asked": None}
+        if h in LLM_ASKED and a["asked"] is None:
+            a["asked"] = {"t": e["t"], "ip": x["ip"], "id": x["id"]}
+        if h in LLM_SERVED:
+            a["n"] += 1
+            a["last"] = max(a["last"], e["t"])
+            if len(a["ips"]) < 1000:
+                a["ips"].add(x["ip"])
+            if x["id"] not in a["sessions"]:
+                a["sessions"].append(x["id"])
+                del a["sessions"][:-20]
+
+
+def fetch_llm_pages(force: bool) -> None:
+    with llm_pages_lock:
+        if not force and time.time() - LLM_PAGES["t"] < LLM_PAGES_TTL:
+            return
+        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        try:
+            r = run_tree(ssh_cmd(False, "sudo python3 -I -"), input=LLM_PAGES_SCRIPT.encode(),
+                         capture_output=True, timeout=120, creationflags=flags)
+            if r.returncode != 0:
+                raise RuntimeError(r.stderr.decode("utf-8", "replace").strip()[-300:] or "ssh failed")
+            res = json.loads(r.stdout.decode("utf-8"))
+            LLM_PAGES.update(t=time.time(), pages=res.get("pages") or [], usage=res.get("usage") or [],
+                             error=s(res.get("error"), 300))
+        except Exception as e:   # keep the last good copy
+            LLM_PAGES.update(t=time.time(), error=f"{type(e).__name__}: {e}"[:300])
+
+
+def llm_pages_view(force: bool, include_own: bool) -> dict:
+    fetch_llm_pages(force)
+    with lock:
+        hits = MODEL.get("llm_hits", {})
+    own = set() if include_own else own_set()
+    rows = []
+    for p in LLM_PAGES["pages"]:
+        if not isinstance(p, list) or len(p) != 7:
+            continue
+        key, status, ctype, model, created, size, body = p
+        key = s(key, 420)
+        method, _, path = key.partition(" ")
+        h = hits.get(key) or {}
+        ips = [ip for ip in h.get("ips", ()) if ip not in own]
+        asked = h.get("asked")
+        rows.append({"method": s(method, 16), "path": s(path, 400), "status": int(status or 0),
+                     "ctype": s(ctype, 80), "model": s(model, 100), "created": iso_ms(created),
+                     "size": int(size or 0), "body": s(body, 16384),
+                     "served": h.get("n", 0) if ips or not h.get("ips") else 0, "visitors": len(ips),
+                     "last": h.get("last", 0), "sessions": h.get("sessions", [])[-5:] if ips else [],
+                     "asked": asked if asked and asked["ip"] not in own else None})
+    return {"pages": rows, "usage": [[s(d, 10), int(n or 0)] for d, n in LLM_PAGES["usage"]
+                                     if isinstance(n, int)],
+            "fetched": int(LLM_PAGES["t"] * 1000), "error": LLM_PAGES["error"]}
+
+
 # ----------------------------------------------------------------------------- session replay (Cowrie ttylogs)
 
 TTY_CACHE = os.path.join(DATA, "tty")
@@ -2850,17 +2940,19 @@ def rebuild() -> None:
     by_ip = defaultdict(list)
     for e in web_events:
         by_ip[e["ip"]].append(e)
-    sessions = []
+    sessions, llm_hits = [], {}
     for ip, evs in by_ip.items():
         evs.sort(key=lambda x: x["t"])
         cur = [evs[0]]
         for e in evs[1:]:
             if e["t"] - cur[-1]["t"] > WEB_SESSION_GAP_MS:
                 sessions.append(make_web(ip, cur))
+                note_llm_hits(sessions[-1], cur, llm_hits)
                 cur = [e]
             else:
                 cur.append(e)
         sessions.append(make_web(ip, cur))
+        note_llm_hits(sessions[-1], cur, llm_hits)
 
     by_sid = defaultdict(list)
     n_cow = 0
@@ -2889,7 +2981,7 @@ def rebuild() -> None:
     with lock:
         MODEL.update(hits=hits, sessions=sessions, backend=backend, by_id={x["id"]: x for x in sessions}, built=int(time.time() * 1000),
                      lines={"web": n_web, "cowrie": n_cow, "decoys": n_dec, "ids": ids["lines"]}, campaigns=campaigns,
-                     ids=ids)
+                     ids=ids, llm_hits=llm_hits)
 
 
 # ----------------------------------------------------------------------------- views
@@ -3914,6 +4006,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/samples":
             return self.send_json(samples_view())
+        if u.path == "/api/llm-pages":
+            return self.send_json(llm_pages_view(q.get("force", ["0"])[0] == "1", q.get("own", ["0"])[0] == "1"))
         if u.path == "/api/report":
             return self.send_json(report_data(q.get("week", [""])[0][:10]))
         if u.path == "/api/report.html":

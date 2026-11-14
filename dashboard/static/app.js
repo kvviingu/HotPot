@@ -57,7 +57,7 @@ const INTEL = [
     ["egress", "Connection attempts", "Destination", "Outgoing network connections attempted from the server (all blocked). Local DNS lookups are left out.", true],
   ] },
 ];
-const VIEWS = ["overview", "sessions", "traps", "stats", "intel", "samples", "report", "status", "settings"];
+const VIEWS = ["overview", "sessions", "traps", "stats", "intel", "samples", "llm", "report", "status", "settings"];
 const INTEL_BY_KEY = {};
 for (const g of INTEL) for (const it of g.items) INTEL_BY_KEY[it[0]] = it;
 
@@ -159,6 +159,7 @@ function applyView() {
   if (state.view === "status") loadVmStatus(false);
   if (state.view === "settings") loadSettings();
   if (state.view === "samples") loadSamples();
+  if (state.view === "llm") loadLlm(false);
   if (state.view === "report") loadReport();
   if (state.view === "stats") { if (ST.data) renderStats(); loadStats(); }
   if (state.view === "intel") iocCounts();
@@ -1846,6 +1847,63 @@ function renderDropped(dr) {
     ? `Showing the ${fmtN(dr.paths.length)} most recent of ${fmtN(dr.path_count)} files.` : "";
 }
 
+// ---- AI-written web pages ---------------------------------------------------------------------
+// Paths come from attackers and page text from a model prompted with them: text nodes only.
+let llmData = null;
+const LLM_SHOW = 300;
+async function loadLlm(force) {
+  $("llm-note").textContent = force ? "Fetching the saved pages from the front VM…" : "Loading…";
+  $("llm-refresh").disabled = true;
+  try {
+    llmData = await (await fetch("/api/llm-pages?own=" + ($("own").checked ? 1 : 0) + (force ? "&force=1" : ""))).json();
+    renderLlm();
+  } catch (e) { $("llm-note").textContent = "Dashboard server not answering."; }
+  $("llm-refresh").disabled = false;
+}
+function renderLlm() {
+  const d = llmData, body = $("llm-table").tBodies[0];
+  if (!d) return;
+  clear(body);
+  const f = $("llm-filter").value.trim().toLowerCase();
+  const rows = d.pages.filter((p) => !f || (p.method + " " + p.path + " " + p.model).toLowerCase().includes(f));
+  for (const p of rows.slice(0, LLM_SHOW)) {
+    const req = el("td", "file");
+    const det = el("details", "llm-page");
+    det.append(el("summary", "mono", `${p.method} ${p.path}`));
+    det.append(el("pre", "llm-body", p.body + (p.size > p.body.length ? `\n… (${fmtBytes(p.size - p.body.length)} more)` : "")));
+    req.append(det);
+    if (p.asked) {
+      const line = el("div", "note");
+      const b = el("button", "link mono", p.asked.ip);
+      b.type = "button";
+      b.addEventListener("click", () => openSession(p.asked.id));
+      line.append(document.createTextNode("First asked for by "), b, document.createTextNode(", " + fmtTime(p.asked.t)));
+      req.append(line);
+    }
+    const ans = el("td", "");
+    ans.append(el("div", "", p.status === 200 ? "Page" : "404 (" + (p.status || "?") + ")"));
+    ans.append(el("div", "note", `${p.ctype || "?"}, ${fmtBytes(p.size)}`));
+    const served = el("td", "num", fmtN(p.served));
+    if (p.served) served.append(el("div", "note", `${fmtN(p.visitors)} ${p.visitors === 1 ? "visitor" : "visitors"}, last ${fmtAgo(p.last)}`));
+    const tr = el("tr");
+    tr.append(el("td", "t", p.created ? fmtTime(p.created) : "–"), req, ans, served, el("td", "mono note", p.model));
+    body.append(tr);
+  }
+  if (!rows.length) {
+    const tr = el("tr"), td = el("td", "empty", f ? "No page matches the filter." : "No AI-written pages yet.");
+    td.colSpan = 5; tr.append(td); body.append(tr);
+  }
+  const ok = d.pages.filter((p) => p.status === 200).length;
+  const today = d.usage.length ? d.usage[0] : null;
+  $("llm-note").textContent = `${fmtN(d.pages.length)} saved pages: ${fmtN(ok)} served as pages, ${fmtN(d.pages.length - ok)} answered with a 404. ` +
+    (today ? `AI calls on ${today[0]}: ${fmtN(today[1])}. ` : "") +
+    (d.fetched ? `Fetched ${fmtAgo(d.fetched)}.` : "Not fetched yet.") + (d.error ? ` Problem: ${d.error}` : "");
+  $("llm-foot").textContent = (rows.length > LLM_SHOW ? `Showing the newest ${fmtN(LLM_SHOW)} of ${fmtN(rows.length)}; filter to find others. ` : "") +
+    "Served counts come from the web logs the dashboard has. Click a path to read the page. The text was written for an attacker's request: never follow links or run anything in it.";
+}
+$("llm-filter").addEventListener("input", () => renderLlm());
+$("llm-refresh").addEventListener("click", () => loadLlm(true));
+
 // ---- IP reputation ----------------------------------------------------------------------------
 function repLines(r) {
   const out = [];
@@ -2292,7 +2350,7 @@ function init() {
   for (const b of document.querySelectorAll(".views button")) b.addEventListener("click", () => go(b.dataset.view));
   for (const b of document.querySelectorAll("[data-goto]")) b.addEventListener("click", () => go(b.dataset.goto));
 
-  $("own").addEventListener("change", () => { state.shown = 100; load(); if (samplesData) renderSamples(); });
+  $("own").addEventListener("change", () => { state.shown = 100; load(); if (samplesData) renderSamples(); if (state.view === "llm") loadLlm(false); });
   for (const id of ["f-class", "f-kind", "f-sort"]) $(id).addEventListener("change", () => { state.shown = 100; renderSessions(); });
   $("f-text").addEventListener("input", () => { state.shown = 100; renderSessions(); });
   $("intel-filter").addEventListener("input", () => renderIntel());
