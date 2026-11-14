@@ -168,8 +168,9 @@ reputation; any AbuseIPDB key can report, and the free plan takes 1,000 reports 
   attack, Bad web bot, Brute-force), or read, changed, ran code on or logged in to a decoy (Port scan,
   plus Brute-force or Hacking). A bare handshake with a decoy is not reported: most of those are
   internet-wide scanners, research ones included.
-* **Never reported:** your own IPs, the VMs' addresses, private addresses, and IPs that GreyNoise
-  calls benign or RIOT (only known for IPs you have looked up).
+* **Never reported:** your own IPs, the VMs' addresses, private addresses, IPs that GreyNoise
+  calls benign or RIOT (only known for IPs you have looked up), and networks of known internet research
+  scanners (Censys, Shodan, Shadowserver, Modat, Onyphe and others, matched by network name).
 * **What a report holds:** the IP, the categories, the time of the last activity and a fixed comment such
   as `Honeypot: SSH password guessing (12 login attempts).` Nothing the attacker typed and nothing about
   this install goes into a report.

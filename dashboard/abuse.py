@@ -2,7 +2,8 @@
 
 Which IPs: public addresses that did more than connect - guessed SSH/Telnet passwords, read a web bait
 file or tried a web login, or read data from, changed, ran code on or logged in to a decoy - and that are not your own, not a private
-address and not a known-benign scanner (GreyNoise "benign" or RIOT, when looked up). Each IP is
+address and not a known-benign scanner (GreyNoise "benign" or RIOT, when looked up, or a network
+of a known internet research scanner such as Censys or Shadowserver). Each IP is
 reported at most once a day, and only for activity newer than its last report.
 
 What leaves this PC: the attacker's IP, AbuseIPDB category numbers, the time of the last activity and a
@@ -13,6 +14,7 @@ report can't carry an attacker's text into AbuseIPDB or tell anyone which sensor
 import ipaddress
 import json
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -29,6 +31,15 @@ PER_RUN = 60             # one run never sends more than this; the rest go on th
 PORT_SCAN, HACKING, BRUTE_FORCE, BAD_WEB_BOT, WEB_APP_ATTACK, SSH, IOT = 14, 15, 18, 19, 21, 22, 23
 CATEGORY_NAMES = {PORT_SCAN: "Port scan", HACKING: "Hacking", BRUTE_FORCE: "Brute-force", BAD_WEB_BOT: "Bad web bot",
                   WEB_APP_ATTACK: "Web app attack", SSH: "SSH", IOT: "IoT targeted"}
+# Networks of internet-wide research and attack-surface scanners. They announce themselves, honour
+# opt-outs and are not attackers, so their sessions are never reported even when they read a decoy's
+# data. Matched against the session's network name (from the geo database), so it works without a
+# GreyNoise lookup.
+RESEARCH_ORG_RE = re.compile(
+    r"\b(censys|shodan|shadowserver|modat|onyphe|binaryedge|stretchoid|leakix|criminal ?ip|ai spera|recyber|"
+    r"alpha strike|internet measurement|driftnet|palo alto networks|rapid7|bitsight|hadrian security|"
+    r"internet census|cyber ?resilience|netscout)\b", re.I)
+
 DECOY_NAMES = {"redis": "Redis", "docker": "Docker API", "elastic": "Elasticsearch", "mysql": "MySQL",
                "ollama": "Ollama API", "k8s": "Kubernetes API", "rdp": "RDP", "smb": "SMB"}
 
@@ -87,6 +98,8 @@ def plan(sessions, own=(), reported=None, now_ms=None, window_ms=DAY_MS, benign=
         ip = x.get("ip")
         end = int(x.get("end") or 0)
         if end < now_ms - window_ms or not _global(ip) or ip in own or ip in benign:
+            continue
+        if RESEARCH_ORG_RE.search(str(x.get("org") or "")[:200]):
             continue
         last_report = reported.get(ip, 0)
         if now_ms - last_report < DAY_MS or end <= last_report:

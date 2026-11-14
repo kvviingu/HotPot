@@ -42,6 +42,17 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(p["91.92.240.17"]["categories"], [abuse.BAD_WEB_BOT, abuse.WEB_APP_ATTACK])
         self.assertEqual(p["179.43.140.3"]["categories"], [abuse.PORT_SCAN, abuse.HACKING])
 
+    def test_research_scanners_are_never_reported(self):
+        now = 1_800_000_000_000
+        base = {"kind": "docker", "stage": 3, "logins": 0, "end": now - 1000}
+        sessions = [dict(base, ip="66.132.172.39", org="Censys, Inc."),
+                    dict(base, ip="199.165.159.33", org="The Shadowserver Foundation, Inc."),
+                    dict(base, ip="85.217.140.51", org="Modat B.V."),
+                    dict(base, ip="103.159.2.113", org="Bangladesh Research and Education Network (BdREN)"),
+                    dict(base, ip="45.155.205.10", org="UNMANAGED LTD")]
+        got = {r["ip"] for r in abuse.plan(sessions, now_ms=now)}
+        self.assertEqual(got, {"103.159.2.113", "45.155.205.10"})
+
     def test_once_a_day_and_only_new_activity(self):
         sessions = [s("45.155.205.10", end=NOW - H)]
         self.assertEqual(abuse.plan(sessions, reported={"45.155.205.10": NOW - 2 * H}, now_ms=NOW), [])

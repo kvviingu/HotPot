@@ -5,11 +5,13 @@ prints the one you have.
 
 ## Unreleased
 
+* **AbuseIPDB reports skip research scanners:** networks of known internet research scanners (Censys,
+  Shodan, Shadowserver, Modat and others) are no longer reported, even without a GreyNoise lookup.
+  Earlier runs had reported a few of them for reading a decoy's data.
 * **Same kernel everywhere:** `hotpot deploy` reads the backend's real kernel and Ubuntu version and
   uses them in the fake shell (`uname`, `/proc/version`, `dmesg`, `hostnamectl`, the motd) and the decoy
   services (Redis, Docker, Elasticsearch, Kubernetes). Before, they claimed an older kernel than the
   real shell, which gave the honeypot away.
-
 * **Map replay** on the Overview: "Replay last 24 hours" plays the last day's events as arcs on the
   map, squeezed into 30 seconds to 3 minutes, with pause and a position slider.
 * **Fewer duplicate samples:** the backend keeps the first 5 versions of each changed text file until the
