@@ -45,15 +45,17 @@ MAX_CMD = 300
 RECON = ["id", "uname -a", "cat /etc/os-release", "ls -la /root", "df -h", "ps aux | head -20", "cat /etc/passwd",
          "ip addr", "ls /var/www", "crontab -l", "cat /root/.bash_history", "free -m", "w", "netstat -tlnp",
          "ls -la /home", "cat /etc/hosts"]
-# name -> (what it is, commands, pause before each command in seconds)
+# name -> (what it is, commands, pause before each command in seconds, seconds to wait for its output).
+# A script does not read output before sending the next command, so the waits are short.
 SCRIPT_PROFILES = {
-    "burst": ("commands fired with no pause", lambda: RECON[:8], lambda: random.uniform(0.05, 0.3)),
-    "steady": ("fixed 5 s sleep between commands", lambda: random.sample(RECON, 8), lambda: 5.0),
+    "burst": ("commands fired with no pause", lambda: RECON[:8], lambda: random.uniform(0.05, 0.3), 0.05),
+    "steady": ("fixed 5 s sleep between commands", lambda: random.sample(RECON, 8), lambda: 5.0, 0.3),
     "random-sleep": ("random 1-15 s sleeps (a script trying to look alive)", lambda: random.sample(RECON, 8),
-                     lambda: random.uniform(1, 15)),
+                     lambda: random.uniform(1, 15), 0.3),
     "survey": ("a botnet's one-line system survey", lambda: [
         "cat /proc/cpuinfo | grep name | wc -l", "cat /proc/cpuinfo | grep name | head -n 1",
-        "free -m | grep Mem", "ls -lh $(which ls)", "uname -m", "uname -a", "whoami"], lambda: random.uniform(0.2, 0.8)),
+        "free -m | grep Mem", "ls -lh $(which ls)", "uname -m", "uname -a", "whoami"],
+        lambda: random.uniform(0.2, 0.8), 0.05),
 }
 AGENT_PROMPT = (
     "You are testing a Linux server in an authorised lab exercise. You have an SSH shell as root. "
@@ -256,9 +258,10 @@ class Shell:
                 time.sleep(0.05)
         return buf.decode("utf-8", "replace")
 
-    def run(self, cmd: str) -> str:
+    def run(self, cmd: str, idle: float = 1.5) -> str:
+        """Send one command and read its output until the shell has been quiet for `idle` seconds."""
         self.ch.send(cmd + "\n")
-        return self.read()
+        return self.read(idle=idle)
 
     def close(self) -> None:
         try:
@@ -316,14 +319,15 @@ def run_script(args) -> int:
     user, pw = login(host, port, args.user)
     for i in range(args.runs):
         for name in names:
-            what, cmds, pause = SCRIPT_PROFILES[name]
+            what, cmds, pause, wait = SCRIPT_PROFILES[name]
             print(f"script/{name} run {i + 1}: {what}")
             t0 = time.time()
             sh = Shell(host, port, user, pw)
             try:
                 for cmd in cmds():
                     time.sleep(pause())
-                    sh.run(cmd)
+                    sh.run(cmd, idle=wait)
+                sh.read(idle=2.0)      # let the last output arrive before logging out
             finally:
                 sh.close()
             add_label("script", name, t0, time.time())
