@@ -59,6 +59,28 @@ class IdentityTest(unittest.TestCase):
             self.assertEqual(p["host"], persona.REFERENCE["host"])
 
 
+class IdentityCheckTest(unittest.TestCase):
+    """After a deploy: does what attackers see carry this install's identity?"""
+    MINE = dict(persona.REFERENCE, brand="Kingsport", industry="Cargo", host="fs-main", check="KC-AGENT-CHECK")
+
+    def test_matching_identity_passes(self):
+        self.assertEqual(hotpot.identity_problems(self.MINE, "<h1>Kingsport Cargo</h1>", "fs-main\n", "Kingsport"), [])
+        self.assertEqual(hotpot.identity_problems(self.MINE), [])                       # nothing was checked
+
+    def test_reference_identity_showing_through_is_reported(self):
+        bad = hotpot.identity_problems(self.MINE, "<h1>Northbridge Logistics</h1>", "fileserver01", "Northbridge NOC")
+        self.assertEqual(len(bad), 4)
+        self.assertTrue(any("reference identity" in b for b in bad))
+        self.assertTrue(any("fileserver01" in b for b in bad))
+
+    def test_a_dead_web_honeypot_is_reported(self):
+        self.assertIn("sent nothing", hotpot.identity_problems(self.MINE, "")[0])
+
+    def test_an_install_on_the_reference_identity_does_not_flag_itself(self):
+        ref = persona.REFERENCE
+        self.assertEqual(hotpot.identity_problems(ref, "Northbridge Logistics", ref["host"], "Northbridge"), [])
+
+
 class SystemTest(unittest.TestCase):
     REAL = ("7.0.0-1013-oracle", "#13~24.04.1-Ubuntu SMP PREEMPT Fri Sep 25 09:28:21 UTC 2026",
             "24.04.5 LTS (Noble Numbat)")

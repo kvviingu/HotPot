@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS tokens (token TEXT PRIMARY KEY, ip TEXT, first_seen T
 CREATE TABLE IF NOT EXISTS llm_cache (key TEXT PRIMARY KEY, status INTEGER, ctype TEXT,
                                       body TEXT, model TEXT, created TEXT);
 CREATE TABLE IF NOT EXISTS llm_usage (day TEXT PRIMARY KEY, count INTEGER);
+CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
 """)
 db.commit()
 
@@ -229,6 +230,21 @@ def looks_like_error_page(text: str) -> bool:
     """The model sometimes writes its own 404 page instead of answering NOTFOUND. A real nginx box
     would send its stock 404 with status 404, so treat those as not found."""
     return len(text) < 6000 and bool(ERROR_PAGE.search(text[:2000]))
+
+
+def forget_other_identity() -> int:
+    """Pages the model wrote name the company. After the install's identity changes they would give the old
+    one away, so drop them all; they are written again on demand. Returns how many were dropped."""
+    want = hashlib.sha256(f"{COMPANY}|{DOMAIN}".encode()).hexdigest()[:16]
+    row = db.execute("SELECT v FROM meta WHERE k='identity'").fetchone()
+    if row and row[0] == want:
+        return 0
+    n = db.execute("DELETE FROM llm_cache").rowcount if row else 0     # first run: nothing to compare with
+    db.execute("INSERT OR REPLACE INTO meta VALUES ('identity', ?)", (want,))
+    db.commit()
+    if n:
+        log({"ts": now_iso(), "event": "llm_cache_identity_reset", "count": n})
+    return n
 
 
 def purge_error_pages() -> None:
@@ -1211,6 +1227,7 @@ def patch_aiohttp_errors() -> None:
 
 async def main() -> None:
     patch_aiohttp_errors()
+    forget_other_identity()
     purge_error_pages()
     app = web.Application(client_max_size=64 * 1024)
     app.router.add_route("*", "/{tail:.*}", handle)

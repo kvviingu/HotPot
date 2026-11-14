@@ -10,7 +10,7 @@ const ST_METRICS = [
   ["commands", "Commands", "typed after logging in"],
   ["decoy_actions", "Decoy actions", "requests to the fake services"],
   ["ids_alerts", "IDS alerts", "Suricata, all sources"],
-  ["samples", "Files captured", "saved to the quarantine"],
+  ["samples", "Files captured", "different files saved in this period"],
   ["agents", "Likely AI agents", "score 60+ or a tripwire"],
 ];
 const ST_PAL = ["#3987e5", "#c98500", "#1f9e8a", "#e0662f", "#a173e6", "#d55181"], ST_OTHER = "#56626f";

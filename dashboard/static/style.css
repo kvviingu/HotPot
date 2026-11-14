@@ -62,6 +62,23 @@ button { cursor: pointer; }
   display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px 28px;
   padding: 0 24px; min-height: 60px; background: var(--sheet); border-bottom: 1px solid var(--rule);
 }
+.health {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 10px 24px;
+  background: color-mix(in srgb, var(--bad) 14%, var(--sheet)); border-bottom: 1px solid var(--bad);
+}
+.health[hidden] { display: none; }
+.health.warn { background: color-mix(in srgb, var(--c-agent_suspected) 14%, var(--sheet)); border-bottom-color: var(--c-agent_suspected); }
+.health ul { flex: 1 1 320px; list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.health li { font-size: 13.5px; color: var(--ink2); overflow-wrap: anywhere; }
+.health li strong { color: var(--ink); font-weight: 600; margin-right: 8px; }
+.health li::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; background: var(--c-agent_suspected); }
+.health li.bad::before { background: var(--bad); }
+.health-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.health-acts button {
+  font: inherit; font-size: 12.5px; padding: 5px 10px; border-radius: 6px; cursor: pointer;
+  color: var(--ink); background: transparent; border: 1px solid var(--muted);
+}
+.health-acts button:hover { border-color: var(--ink); }
 .brand { display: flex; align-items: center; gap: 10px; }
 .mark { width: 28px; height: 28px; color: var(--accent); flex: none; }
 .brand h1 { font-size: 17px; line-height: 1.15; }

@@ -74,5 +74,27 @@ class AgentScoring(unittest.TestCase):
         self.assertTrue(any("slow commands" in r for r in x["reasons"]))
 
 
+class RepeatedBackendEvents(unittest.TestCase):
+    """Malware loops: identical commands are kept REPEAT_KEEP times per login, the rest only counted."""
+
+    def test_repeats_are_folded_and_still_counted(self):
+        seen, kept = {}, []
+        for i in range(500):
+            e = {"type": "exec", "t": T + i, "exe": "/usr/bin/bash", "argv": ["/bin/bash", "-c", "printf OK"]}
+            if not server.fold_repeat(seen, e, "77:1"):
+                kept.append(e)
+        self.assertEqual(len(kept), server.REPEAT_KEEP)
+        self.assertEqual(sum(server.n_times(e) for e in kept), 500)
+        self.assertEqual(kept[-1]["_until"], T + 499)
+        self.assertIn("480 more times", server.more_note(kept[-1])[0])
+
+    def test_different_commands_logins_and_files_are_never_folded(self):
+        seen = {}
+        for i in range(100):
+            self.assertFalse(server.fold_repeat(seen, {"type": "exec", "t": T, "exe": "/bin/ls", "argv": ["ls", str(i)]}, "1:1"))
+            self.assertFalse(server.fold_repeat(seen, {"type": "exec", "t": T, "exe": "/bin/id", "argv": ["id"]}, f"{i}:1"))
+            self.assertFalse(server.fold_repeat(seen, {"type": "file", "t": T, "path": "/tmp/x", "sha256": "a" * 64}, "1:1"))
+
+
 if __name__ == "__main__":
     unittest.main()

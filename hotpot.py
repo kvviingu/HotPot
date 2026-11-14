@@ -573,6 +573,45 @@ def cmd_status(conf, vms):
                 "for t in nb-collect.timer nb-reset.timer auditd; do printf '  %s: %s\\n' $t $(systemctl is-active $t); "
                 "done; printf '  samples in quarantine: %s\\n' "
                 "$(sudo find /var/lib/nb-quarantine/files -name '*.bin' | wc -l)")
+    verify_identity(conf, vms)
+
+
+def identity_problems(ident, web_html=None, ct_host=None, ct_motd=None) -> list:
+    """What a visitor would see that does not match this install's identity. None means not checked."""
+    out, ref = [], persona.REFERENCE
+    leak = not persona.is_reference(ident) and ref["brand"].lower() != ident["brand"].lower()
+    if web_html is not None:
+        if ident["brand"].lower() not in web_html.lower():
+            out.append(f"the web honeypot's front page does not name {ident['brand']}"
+                       + ("" if web_html.strip() else " (it sent nothing)"))
+        if leak and ref["brand"].lower() in web_html.lower():
+            out.append(f"the web honeypot's front page still names the public reference identity ({ref['brand']})")
+    if ct_host is not None and ct_host.strip() != ident["host"]:
+        out.append(f"the container calls itself {ct_host.strip()[:60] or '(nothing)'}, not {ident['host']}")
+    if ct_motd is not None and leak and ref["brand"].lower() in ct_motd.lower():
+        out.append(f"the container's login banner still names the public reference identity ({ref['brand']})")
+    return out
+
+
+def verify_identity(conf, vms, front=True, backend=True) -> int:
+    """After a deploy: does what attackers see carry this install's identity? Reads only."""
+    ident = persona.load()
+    web = host = motd = None
+    if front:
+        r = vms.run("front", "curl -s -m 15 http://127.0.0.1/ | head -c 200000", capture=True)
+        web = r.stdout.decode("utf-8", "replace") if r.returncode == 0 else ""
+    if backend and backend_on(conf):
+        ct = shlex.quote(conf.get("CT_NAME", ""))
+        r = vms.run("backend", f"sudo incus exec {ct} -- sh -c 'hostname; cat /etc/motd' | head -c 20000", capture=True)
+        text = r.stdout.decode("utf-8", "replace") if r.returncode == 0 else ""
+        host, _, motd = text.partition("\n")
+    bad = identity_problems(ident, web, host, motd)
+    if bad:
+        warn("identity check: " + "; ".join(bad) + ".\n  Run the deploy again; if it stays, attackers can tell "
+             "this is HotPot.")
+        return 1
+    say(f"Identity check passed: attackers see {ident['brand']} {ident['industry']} on {ident['host']}")
+    return 0
 
 
 def cmd_cleanup(conf, vms, mode):
@@ -1003,6 +1042,7 @@ def deploy_all(conf, target="all"):
         cmd_front(conf, vms)
     if target in ("all", "backend") and (backend_on(conf) or target == "backend"):
         cmd_backend(conf, vms)
+    verify_identity(conf, vms, front=target in ("all", "front"), backend=target in ("all", "backend"))
     if target == "all":
         write_dashboard_config(conf)
         say("Wrote dashboard/config.json")

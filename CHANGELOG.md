@@ -5,6 +5,20 @@ prints the one you have.
 
 ## Unreleased
 
+* **Health banner:** the dashboard says in plain words when something is wrong (sensor unreachable, a VM
+  overloaded or not answering, disk filling up, a service or the collector stopped, a honeypot gone
+  quiet), with optional desktop notifications.
+* **Identity check after deploy:** `hotpot deploy` and `hotpot status` confirm that the web honeypot and
+  the container show this install's identity, not the public reference one.
+* **AI pages follow the identity:** pages the web honeypot's AI wrote are deleted when the identity
+  changes, so none keeps naming the old company.
+* **"Files captured" counts each file once.** It counted every changed version; malware rewriting one
+  file every minute had made it 12 times the number of samples.
+* **Dashboard uses less memory and time:** identical commands that malware repeats (one ran 125,000
+  times) are kept 20 times per login with a count of the rest, repeated text is stored once, and
+  matching logins to sessions is faster. On the reference sensor a refresh went from 30 s to 20 s and
+  memory from about 2 GB to about 1 GB.
+
 * **Reset on overload:** when malware in the container keeps the backend VM's load at 15 or more for
   three minutes, the container is harvested and reset at once instead of at night. A brute-forcer and
   miner had pushed the load to 92, and logins hung for everyone.

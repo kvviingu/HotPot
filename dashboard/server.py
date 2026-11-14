@@ -15,6 +15,7 @@ Security model:
   * file names and sizes coming back from the VM are validated before anything is written
 """
 import base64
+import bisect
 import codecs
 import concurrent.futures
 import hashlib
@@ -45,6 +46,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import abuse
 import forward
 import geo
+import health
 import ioc
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -1404,6 +1406,27 @@ def abuse_loop() -> None:
             run_abuse()
 
 
+HEALTH_EVERY = 300          # s between VM probes for the health banner
+
+
+def health_now() -> list:
+    """What is wrong right now, from the sync state and the last VM probe (see health.py)."""
+    try:
+        return health.problems(dict(STATUS), VM_STATUS["data"], time.time())
+    except Exception as e:      # a banner must never break the page
+        return [{"id": "health", "level": "warn", "title": "The health check failed", "detail": type(e).__name__}]
+
+
+def health_loop() -> None:
+    time.sleep(40)                                  # let the first sync finish
+    while True:
+        try:
+            vm_status()
+        except Exception:
+            pass
+        time.sleep(HEALTH_EVERY)
+
+
 def sync_loop() -> None:
     while True:
         sync_once()
@@ -1416,6 +1439,10 @@ def read_lines(prefix: str):
     if not os.path.isdir(MIRROR):
         return
     seen = set()
+    # Log lines repeat the same short strings (addresses, event names, paths) hundreds of thousands of times.
+    # Sharing one copy of each, and dropping the text timestamp where "t" already has it, cuts the memory
+    # the events take by about a third.
+    memo, drop_ts = {}, prefix in ("decoys", "backend")
     for fn in sorted(os.listdir(MIRROR)):
         if not fn.startswith(prefix + "__"):
             continue
@@ -1432,6 +1459,13 @@ def read_lines(prefix: str):
                 except ValueError:
                     continue
                 if isinstance(obj, dict):
+                    if drop_ts and "t" in obj:
+                        obj.pop("ts", None)
+                    for k, v in obj.items():
+                        if type(v) is str and len(v) < 160:
+                            obj[k] = memo.setdefault(v, v)
+                    if len(memo) > 400_000:
+                        memo.clear()
                     yield obj
 
 
@@ -1827,13 +1861,65 @@ PERSIST_PATH_RE = re.compile(r"^/(root|home/[^/]+)/(\.ssh/authorized_keys2?|\.ba
                         r"|^/var/spool/cron/.+|^/(usr/)?lib/systemd/system/.+")
 
 
+def cap_key(e: dict) -> str:
+    """Identity of a captured file: its hash. The collector logs one event per changed version, and malware
+    that rewrites a file every minute once made "files captured" 12 times the number of samples."""
+    return s(e.get("sha256"), 64) or f"{s(e.get('path') or e.get('url'), 300)}@{e.get('t')}"
+
+
+# Malware left running repeats itself: one watchdog line ran 125,000 times in two days, and 760,000 such
+# events took the dashboard to 2 GB. Each login keeps the first REPEAT_KEEP runs of an identical command (or
+# connections to one address); the last one kept carries how many more followed ("_more") and until when.
+REPEAT_KEEP = 20
+
+
+def repeat_key(e: dict, root: str):
+    if e.get("type") == "exec":
+        a = e.get("argv")
+        return root, "x", e.get("exe") if isinstance(e.get("exe"), str) else "", \
+            ("\0".join(map(str, a)) if isinstance(a, list) else str(a))[:800]
+    if e.get("type") == "conn":
+        return root, "c", str(e.get("dst"))[:120], str(e.get("exe"))[:300]
+    return None
+
+
+def fold_repeat(seen: dict, e: dict, root: str) -> bool:
+    """True when `e` is one repeat too many: it is counted on the last kept event and can be dropped."""
+    k = repeat_key(e, root)
+    if k is None:
+        return False
+    st = seen.get(k)
+    if st is None:
+        seen[k] = [1, e]
+    elif st[0] < REPEAT_KEEP:
+        st[0] += 1
+        st[1] = e
+    else:
+        st[1]["_more"] = st[1].get("_more", 0) + 1
+        st[1]["_until"] = e["t"]
+        return True
+    return False
+
+
+def n_times(e: dict) -> int:
+    """How many real events this one stands for."""
+    return 1 + e.get("_more", 0)
+
+
+def more_note(e: dict) -> list:
+    if not e.get("_more"):
+        return []
+    return [f"Repeated {e['_more']:,} more times, the last at "
+            + datetime.fromtimestamp(e.get("_until", e["t"]) / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")]
+
+
 def attach_backend(sessions: list) -> dict:
     """Attach the real-shell backend's exec/connect/file/fetch events to the Cowrie sessions they belong to.
 
     Each backend event names its login root ("pid:t" of the `sshd -R` or tcpd/telnetd exec); a root is
     matched to the Cowrie session whose backend connection opened closest in time (same protocol)."""
     roots = defaultdict(list)
-    loose, resets, guards, capped = [], [], [], []
+    loose, resets, guards, capped, repeats = [], [], [], [], {}
     for e in read_lines("backend"):
         if not isinstance(e.get("t"), int):
             continue
@@ -1849,7 +1935,10 @@ def attach_backend(sessions: list) -> dict:
         if e.get("type") not in ("exec", "conn", "file", "fetch"):
             continue
         r = s(e.get("root"), 40)
+        if fold_repeat(repeats, e, r):
+            continue
         (roots[r] if r else loose).append(e)
+    del repeats
     proxied = []
     for x in sessions:
         if x["kind"] == "web":
@@ -1862,15 +1951,22 @@ def attach_backend(sessions: list) -> dict:
         tail = r.split(":")[-1]
         return int(tail) if tail.isdigit() else None
 
+    # sessions by the time their backend connection opened, per protocol, so each login root only looks
+    # at the few within 15 s of it (scanning all of them for each root took most of a rebuild)
+    by_kind = defaultdict(list)
+    for i, (bt, x) in sorted(enumerate(proxied), key=lambda p: p[1][0]):
+        by_kind[x["kind"]].append((bt, x, i))
+    kind_ts = {k: [v[0] for v in vs] for k, vs in by_kind.items()}
     used, matched = set(), {}
     for r in sorted((r for r in roots if root_t(r) is not None), key=root_t):
         rt = root_t(r)
         first = next((e for e in roots[r] if e.get("type") == "exec"), None)
         kind = "ssh" if first and os.path.basename(s(first.get("exe"), 300)) == "sshd" else "telnet"
-        cands = [(abs(bt - rt), x) for bt, x in proxied
-                 if x["kind"] == kind and id(x) not in used and abs(bt - rt) < 15000]
+        ts = kind_ts.get(kind, [])
+        near = by_kind[kind][bisect.bisect_right(ts, rt - 15000):bisect.bisect_left(ts, rt + 15000)]
+        cands = [(abs(bt - rt), i, x) for bt, x, i in near if id(x) not in used]
         if cands:
-            x = min(cands, key=lambda c: c[0])[1]
+            x = min(cands, key=lambda c: c[:2])[2]      # nearest; on a tie the earlier session, as before
             used.add(id(x))
             matched[r] = x
     for x in sessions:
@@ -1919,8 +2015,9 @@ def attach_backend(sessions: list) -> dict:
         b.sort(key=lambda e: e["t"])
         progs = [e for e in b if e.get("type") == "exec" and not e.get("_noise")]
         caps = [e for e in b if e.get("type") == "file" or (e.get("type") == "fetch" and e.get("sha256"))]
-        x["programs"] = len(progs)
-        x["captured"] = len(caps)
+        x["programs"] = sum(n_times(e) for e in progs)
+        x["_caps"] = sorted({cap_key(e) for e in caps})
+        x["captured"] = len(x["_caps"])
         x["flags"].append("real shell")
         if caps:
             x["flags"].append("sample captured")
@@ -3252,9 +3349,15 @@ def _series(ss: list, times: list, step: int, first_seen: dict, alerts: list, lo
         out["commands"][i] += f["cmds"]
         if g == "svc" and x["stage"] > 0:
             out["decoy_actions"][i] += x["n"]
-        out["samples"][i] += x.get("captured") or 0
         if x.get("ascore", 0) >= 60 or x.get("trips"):
             out["agents"][i] += 1
+    # each file counts once, in the bucket where it first showed up
+    seen = set()
+    for t, k in sorted([(x["start"], k) for x in ss for k in x.get("_caps", ())] + list(loose)):
+        i = (t - t0) // step
+        if k not in seen and 0 <= i < nb:
+            out["samples"][i] += 1
+        seen.add(k)
     for i, bucket in enumerate(ips):
         out["ips"][i] = len(bucket)
         for ip in bucket:
@@ -3266,10 +3369,6 @@ def _series(ss: list, times: list, step: int, first_seen: dict, alerts: list, lo
         i = (r["t"] - t0) // step
         if 0 <= i < nb:
             out["ids_alerts"][i] += 1
-    for t in loose:              # captured files no session could be credited with
-        i = (t - t0) // step
-        if 0 <= i < nb:
-            out["samples"][i] += 1
     return out
 
 
@@ -3285,7 +3384,7 @@ def _totals(ss: list, a0: int, first_seen: dict, alerts: list, loose=()) -> dict
         "logins_ok": sum(1 for x in ss if x["kind"] in ("ssh", "telnet") and x["stage"] >= 2),
         "commands": sum(session_facts(x)["cmds"] for x in ss),
         "decoy_actions": sum(x["n"] for x in ss if kind_group(x["kind"]) == "svc" and x["stage"] > 0),
-        "ids_alerts": len(alerts), "samples": sum(x.get("captured") or 0 for x in ss) + len(loose),
+        "ids_alerts": len(alerts), "samples": len({k for x in ss for k in x.get("_caps", ())} | {k for _, k in loose}),
         "agents": sum(1 for x in ss if x.get("ascore", 0) >= 60 or x.get("trips")),
     }
 
@@ -3335,9 +3434,10 @@ def stats_view(rng: str, include_own: bool) -> dict:
     a_cur = [r for r in alerts_all if r["t"] >= t_from]
     a_prev = [r for r in alerts_all if p_from is not None and p_from <= r["t"] < t_from]
     with lock:
-        loose_t = [e.get("ctime") or e["t"] for e in MODEL.get("backend", {}).get("unattributed_files", [])]
-    l_cur = [t for t in loose_t if t >= t_from]
-    l_prev = [t for t in loose_t if p_from is not None and p_from <= t < t_from]
+        # captured files no session could be credited with, as (time, identity)
+        loose_t = [(e.get("ctime") or e["t"], cap_key(e)) for e in MODEL.get("backend", {}).get("unattributed_files", [])]
+    l_cur = [v for v in loose_t if v[0] >= t_from]
+    l_prev = [v for v in loose_t if p_from is not None and p_from <= v[0] < t_from]
     cmp = bool(span) and bool(prev or a_prev)     # nothing to compare against before the first data
     first_seen = {}
     for x in pool:
@@ -3572,6 +3672,7 @@ def build_view(rng: str, include_own: bool) -> dict:
     fp_ips, fp_sessions, fp_label = defaultdict(set), Counter(), {}
     camps = MODEL.get("campaigns", {})
     kpi = Counter()
+    cap_seen = set()              # captured files, each counted once
     cls_count, web_funnel, ssh_funnel, decoy_funnel = Counter(), Counter(), Counter(), Counter()
     seen_ip_geo = set()
     for x in sel:
@@ -3661,21 +3762,22 @@ def build_view(rng: str, include_own: bool) -> dict:
             for e in x.get("_backend", ()):
                 ty = e.get("type")
                 if ty == "exec" and not e.get("_noise"):
-                    kpi["programs"] += 1
-                    c["programs"][os.path.basename(s(e.get("exe"), 300)) or "?"] += 1
+                    kpi["programs"] += n_times(e)
+                    c["programs"][os.path.basename(s(e.get("exe"), 300)) or "?"] += n_times(e)
                 elif ty == "conn" and not local_dst(s(e.get("dst"), 80)):
-                    c["egress"][s(e.get("dst"), 80)] += 1
+                    c["egress"][s(e.get("dst"), 80)] += n_times(e)
                 elif ty == "file":
-                    kpi["captured"] += 1
+                    cap_seen.add(cap_key(e))
                     c["captured"][f"{s(e.get('path'), 120)}  ({s(e.get('magic'), 50).split(',')[0]})"] += 1
                 elif ty == "fetch":
                     if e.get("sha256"):
-                        kpi["captured"] += 1
+                        cap_seen.add(cap_key(e))
                     c["fetch_urls"][s(e.get("url"), 160) + ("" if e.get("sha256") else "  (failed)")] += 1
     for e in MODEL.get("backend", {}).get("unattributed_files", []):
         if span is None or e["t"] >= now - span:
-            kpi["captured"] += 1
+            cap_seen.add(cap_key(e))
             c["captured"][f"{s(e.get('path'), 120)}  ({s(e.get('magic'), 50).split(',')[0]}, after logout)"] += 1
+    kpi["captured"] = len(cap_seen)
     for k, n in fp_sessions.items():
         c[k[0]][f"{k[1]}  ({fp_label[k] or 'no client string'}; {len(fp_ips[k])} IPs)"] = n
     kpi["unique_ips"] = len(c["ips"])
@@ -3903,14 +4005,14 @@ def session_view(sid: str):
                 continue
             evs.append({"t": e["t"], "title": "▸ " + s(e.get("argv"), 2000), "status": None,
                         "tag": "ran" + ("" if e.get("ok", True) else " (failed)"),
-                        "notes": [f"as uid {e.get('uid')} in {s(e.get('cwd'), 200)}  ({s(e.get('exe'), 200)})"],
-                        "more": {}})
+                        "notes": [f"as uid {e.get('uid')} in {s(e.get('cwd'), 200)}  ({s(e.get('exe'), 200)})"]
+                        + more_note(e), "more": {}})
         elif ty == "conn":
             if local_dst(s(e.get("dst"), 80)):
                 continue
             evs.append({"t": e["t"], "title": f"→ connect {s(e.get('dst'), 80)}", "status": None,
-                        "tag": "network", "notes": [f"by {s(e.get('exe'), 200)} (the server has no internet)"],
-                        "more": {}})
+                        "tag": "network", "notes": [f"by {s(e.get('exe'), 200)} (the server has no internet)"]
+                        + more_note(e), "more": {}})
         elif ty == "file":
             evs.append({"t": e.get("ctime") or e["t"], "title": f"Saved sample: {s(e.get('path'), 400)}",
                         "status": None, "tag": "captured",
@@ -4025,7 +4127,7 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/meta":
             return self.send_json({"token": CSRF, "status": STATUS, "host": CFG["ssh_host"],
                                    "own_ips": CFG.get("own_ips", []), "lines": MODEL["lines"],
-                                   "sync_seconds": CFG.get("sync_seconds", 60)})
+                                   "sync_seconds": CFG.get("sync_seconds", 60), "health": health_now()})
         if u.path == "/api/data":
             rng = q.get("range", ["24h"])[0]
             return self.send_json(build_view(rng if rng in RANGES else "24h", q.get("own", ["0"])[0] == "1"))
@@ -4220,6 +4322,7 @@ def main() -> None:
     rebuild()
     threading.Thread(target=geo.ensure, daemon=True).start()
     threading.Thread(target=sync_loop, daemon=True).start()
+    threading.Thread(target=health_loop, daemon=True).start()
     threading.Thread(target=lookup_loop, daemon=True).start()
     threading.Thread(target=iprep_loop, daemon=True).start()
     threading.Thread(target=abuse_loop, daemon=True).start()

@@ -182,7 +182,7 @@ function renderFigures(k) {
     [k.login_attempts, "Login attempts", `${fmtN(k.logins_ok)} let in`],
     [k.commands, "Commands", `typed in; ${fmtN(k.programs)} programs ran`],
     [k.decoy_actions, "Decoy hits", "on the fake services"],
-    [k.captured, "Files captured", "saved to the quarantine", true],
+    [k.captured, "Files captured", "different files saved in this period", true],
     [k.agents, "Likely AI agents", "by timing or canary", true],
     [k.trip_sessions, "Tripwire hits", "sessions that acted on a bait file", true],
   ];
@@ -2327,11 +2327,48 @@ function renderStatus() {
       + (st.backend_error ? "\nReal-shell backend not reachable: " + st.backend_error : "");
   if (!st.error && st.backend_error) $("syncstate").textContent += " (backend failed)";
 }
+// What is wrong with the sensor right now (dashboard/health.py), as a banner under the header.
+const healthSeen = new Set();
+function renderHealth(items) {
+  const box = $("health");
+  box.replaceChildren();
+  box.hidden = !items || !items.length;
+  if (box.hidden) { healthSeen.clear(); return; }
+  box.classList.toggle("warn", !items.some(p => p.level === "bad"));
+  const ul = el("ul");
+  for (const p of items) {
+    const li = el("li", p.level);
+    li.append(el("strong", "", p.title));
+    if (p.detail) li.append(el("span", "", p.detail));
+    ul.append(li);
+  }
+  const acts = el("div", "health-acts"), go = el("button", "", "Open Status");
+  go.type = "button";
+  go.addEventListener("click", () => $("tab-status").click());
+  acts.append(go);
+  if ("Notification" in window && Notification.permission === "default") {
+    const ask = el("button", "", "Alert me on the desktop");
+    ask.type = "button";
+    ask.title = "Show a desktop notification when a new problem appears while this page is open";
+    ask.addEventListener("click", () => Notification.requestPermission().then(() => ask.remove()));
+    acts.append(ask);
+  }
+  box.append(ul, acts);
+  for (const p of items) {
+    if (healthSeen.has(p.id)) continue;
+    healthSeen.add(p.id);
+    if (p.level === "bad" && "Notification" in window && Notification.permission === "granted") {
+      try { new Notification("HotPot: " + p.title, { body: p.detail || "", tag: "hotpot-" + p.id }); } catch (e) { /* not allowed here */ }
+    }
+  }
+  for (const id of [...healthSeen]) if (!items.some(p => p.id === id)) healthSeen.delete(id);
+}
 async function load() {
   try {
     meta = await (await fetch("/api/meta")).json();
     token = meta.token;
     renderStatus();
+    renderHealth(meta.health);
     data = await (await fetch(`/api/data?range=${encodeURIComponent(state.range)}&own=${$("own").checked ? 1 : 0}`)).json();
     $("host").textContent = `${meta.host}, since ${fmtTime(data.meta.from)}`;
     $("host").title = ($("own").checked ? "Including" : "Hiding") + ` your own IP (${data.meta.own_ips.join(", ") || "none set"})`;

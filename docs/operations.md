@@ -79,8 +79,15 @@ them over SSH).
   copy in `dashboard/data/mirror/` keeps every line it synced, so sync at least once within
   `LOG_KEEP_DAYS`. `./hotpot cleanup` shows disk use per kind of data, `cleanup dry-run` what would go,
   `cleanup run` runs it now.
-* **Health:** `./hotpot status`. The dashboard's Sync button turns red when the front VM fails, and
-  says "backend failed" when only the backend pull fails.
+* **Health:** the dashboard shows a banner under its header when something is wrong: it cannot reach the
+  sensor, a VM does not answer or is overloaded, a disk is filling up, a service or the container is not
+  running, the backend collector has stopped, or nothing has reached the SSH honeypot for 6 hours (web:
+  12). It checks every 5 minutes (`dashboard/health.py` has the thresholds). "Alert me on the desktop"
+  adds a desktop notification for new problems while the page is open. `./hotpot status` prints the same
+  basics in a terminal.
+* **Identity check:** `./hotpot deploy` and `./hotpot status` end by reading the web honeypot's front
+  page and the container's host name and login banner, and warn if they don't carry this install's
+  identity or still show the public reference one.
 
 ## Changing the persona
 
@@ -111,7 +118,8 @@ runs outside what attackers see and keeps its name.
 
 * `./hotpot identity` shows the current identity.
 * `./hotpot identity new` makes a fresh one. Run `./hotpot deploy` to apply it. The dashboard picks it
-  up on its next start; tripwire hits recorded under the old identity are no longer matched.
+  up on its next start; tripwire hits recorded under the old identity are no longer matched. Pages the
+  web honeypot's AI had written under the old identity are deleted when it restarts.
 * A backend container that already exists gets the new host name and files, but keeps the old
   persona's files beside them. For a clean switch, delete it first:
   `./hotpot ssh backend "sudo incus delete -f <CT_NAME>"`, then `./hotpot deploy backend`.
