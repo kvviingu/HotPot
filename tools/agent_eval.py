@@ -6,6 +6,7 @@ it was, and later compares that with the class the dashboard gave each session.
 
     python tools/agent_eval.py script            scripted sessions (fast, fixed pauses, random pauses, bot one-liner)
     python tools/agent_eval.py agent             a test agent: a free OpenRouter model picks each command
+    python tools/agent_eval.py all               both of the above, one after the other
     python tools/agent_eval.py mark agent --tool claude-code     label a session you run yourself (also: human, script)
     python tools/agent_eval.py report            score the dashboard against the labels
 
@@ -239,11 +240,21 @@ class Shell:
             def missing_host_key(self, client, hostname, key):
                 return
 
-        self.c = paramiko.SSHClient()
-        self.c.set_missing_host_key_policy(Quiet())
-        self.c.connect(host, port=port, username=user, password=password, allow_agent=False,
-                       look_for_keys=False, timeout=20, banner_timeout=30, auth_timeout=30)
-        self.ch = self.c.invoke_shell(term="xterm", width=120, height=40)
+        for attempt in range(4):       # the honeypot sometimes drops a new connection; try again
+            self.c = paramiko.SSHClient()
+            self.c.set_missing_host_key_policy(Quiet())
+            try:
+                self.c.connect(host, port=port, username=user, password=password, allow_agent=False,
+                               look_for_keys=False, timeout=20, banner_timeout=30, auth_timeout=30)
+                self.ch = self.c.invoke_shell(term="xterm", width=120, height=40)
+                break
+            except paramiko.AuthenticationException:
+                raise
+            except (EOFError, OSError, paramiko.SSHException):
+                self.close()
+                if attempt == 3:
+                    raise
+                time.sleep(10 * (attempt + 1))
         self.read(idle=2.0)
 
     def read(self, idle: float = 1.5, limit: float = 40.0) -> str:
@@ -322,15 +333,18 @@ def run_script(args) -> int:
             what, cmds, pause, wait = SCRIPT_PROFILES[name]
             print(f"script/{name} run {i + 1}: {what}")
             t0 = time.time()
-            sh = Shell(host, port, user, pw)
             try:
-                for cmd in cmds():
-                    time.sleep(pause())
-                    sh.run(cmd, idle=wait)
-                sh.read(idle=2.0)      # let the last output arrive before logging out
-            finally:
-                sh.close()
-            add_label("script", name, t0, time.time())
+                sh = Shell(host, port, user, pw)
+                try:
+                    for cmd in cmds():
+                        time.sleep(pause())
+                        sh.run(cmd, idle=wait)
+                    sh.read(idle=2.0)      # let the last output arrive before logging out
+                finally:
+                    sh.close()
+                add_label("script", name, t0, time.time())
+            except Exception as e:         # one lost session must not end the whole run; it gets no label
+                print(f"  skipped: connection problem ({type(e).__name__})")
             time.sleep(args.gap)
     print("Done. Wait for the dashboard to sync, then: python tools/agent_eval.py report")
     return 0
@@ -370,7 +384,8 @@ def ask_model(key: str, models: list, messages: list) -> str:
     for model in models:
         if not model.endswith(":free"):
             continue
-        body = json.dumps({"model": model, "messages": messages, "max_tokens": 120, "temperature": 0.7}).encode()
+        # free models often reason first, and that counts against max_tokens: leave room for it
+        body = json.dumps({"model": model, "messages": messages, "max_tokens": 1000, "temperature": 0.7}).encode()
         req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=body, headers={
             "Authorization": "Bearer " + key, "Content-Type": "application/json"})
         try:
@@ -393,7 +408,11 @@ def agent_session(shell, think, steps: int, addresses) -> int:
                 {"role": "user", "content": "You are logged in. Send your first command."}]
     n = 0
     for _ in range(steps):
-        reply = think(messages)
+        try:
+            reply = think(messages)
+        except RuntimeError as e:          # the model stopped answering: what ran so far still counts
+            print(f"  the model stopped answering ({e})")
+            break
         cmd = command_from(reply)
         if not cmd:
             break
@@ -420,17 +439,20 @@ def run_agent(args) -> int:
     for i in range(args.runs):
         print(f"agent run {i + 1} of {args.runs} (up to {args.steps} commands)…")
         t0 = time.time()
-        sh = Shell(host, port, user, pw)
         try:
-            n = agent_session(sh, lambda msgs: ask_model(key, models, msgs), args.steps, hide)
-        except RuntimeError as e:
-            print(f"  stopped: the model did not answer ({e})")
-            n = -1
-        finally:
-            sh.close()
-        if n >= 0:
-            print(f"  ran {n} commands")
+            sh = Shell(host, port, user, pw)
+            try:
+                n = agent_session(sh, lambda msgs: ask_model(key, models, msgs), args.steps, hide)
+            finally:
+                sh.close()
+        except Exception as e:
+            print(f"  skipped: connection problem ({type(e).__name__})")
+            n = 0
+        print(f"  ran {n} commands")
+        if n >= 3:      # shorter sessions say nothing about pacing
             add_label("agent", "test-agent:" + models[0], t0, time.time(), f"{n} commands")
+        else:
+            print("  too short to count; not labelled")
         time.sleep(args.gap)
     print("Done. Wait for the dashboard to sync, then: python tools/agent_eval.py report")
     return 0
@@ -464,6 +486,9 @@ def main(argv=None) -> int:
     ssh_opts(p)
     p.add_argument("--steps", type=int, default=12, help="most commands per session")
     p.add_argument("--models", default="", help="comma-separated free models (default: LLM_MODELS in honeypot.conf)")
+    p = sub.add_parser("all", help="the scripted sessions, then the test agent")
+    ssh_opts(p)
+    p.set_defaults(profile="all", steps=12, models="")
     p = sub.add_parser("mark", help="label a session you run yourself")
     p.add_argument("kind", choices=KINDS)
     p.add_argument("--tool", required=True, help="what you used, e.g. claude-code, codex, putty")
@@ -471,6 +496,8 @@ def main(argv=None) -> int:
     p = sub.add_parser("report", help="score the dashboard against the labels")
     p.add_argument("--misses", action="store_true", help="list each wrong call")
     args = ap.parse_args(argv)
+    if args.cmd == "all":
+        return run_script(args) or run_agent(args)
     return {"script": run_script, "agent": run_agent, "mark": run_mark, "report": report}[args.cmd](args)
 
 
