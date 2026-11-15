@@ -5,6 +5,9 @@ prints the one you have.
 
 ## Unreleased
 
+* **Agent tools with uneven pauses are caught:** a session that follows up on what it saw and writes its
+  commands the way models do (section headers, friendly fallbacks) is a suspected AI agent even when its
+  pauses look like a person's. A Claude Code test session had been called Human-like.
 * **Test real agent tools:** `tools/agent_eval.py bridge` keeps one shell on the honeypot open so a coding
   agent such as Claude Code can run commands through it without ever seeing the password; the session is
   labelled for the detection report.

@@ -30,6 +30,12 @@ checks tell them apart in SSH sessions:
 
 A session that is paced and varied but never follows up is "Not enough data": it could be either.
 
+**Agent tools that pause unevenly.** A real agent tool (Claude Code and the like) thinks for a few seconds
+or for most of a minute, so its pauses look like a person's. It still follows up, and it writes its
+commands the way models do: section-header echoes, `|| echo` fallbacks, errors silenced on every step.
+Follow-ups plus one such habit, from a client that is not a desktop terminal, make the session "Suspected
+AI agent" whatever the pauses. The habits alone never do: a script can carry them.
+
 ## AI-agent score (0-100)
 
 100 when the session hit a canary token. Otherwise points for:
@@ -80,6 +86,10 @@ called 9 sleeping scripts agents, so only 2 of 11 agent alarms were true. With t
 script is called an agent and both full agent sessions still are; the random-sleep scripts and a
 3-command agent session come out as "Not enough data". The sample is small and has one model in it, so
 label sessions from real agent tools (`mark agent`) before trusting the numbers further.
+
+First real tool (Claude Code through the bridge, 9 commands): called Human-like, because its pauses were
+uneven. That led to the rule for agent tools above. With it, that session is a suspected agent and no
+other session of the reference sensor's week changed class.
 
 ## Tripwires
 

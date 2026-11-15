@@ -1689,7 +1689,8 @@ def make_web(ip: str, evs: list) -> dict:
 
 
 # Steady pauses (2) and varied commands (1) are not enough for SSH: a script with sleeps has both. Measured with
-# tools/agent_eval.py; an agent must also follow up on output (2).
+# tools/agent_eval.py; an agent must also follow up on output (2). Without steady pauses (a real agent tool
+# pauses unevenly), varied commands (1), follow-ups (2) and model-style commands (1) reach it too.
 AGENT_SSH_SCORE = 4
 
 
@@ -1750,6 +1751,14 @@ def make_cowrie(sid: str, evs: list) -> dict:
         score += 2
         reasons.append(f"Followed up on what it saw: opened {len(deeper)} things it had just listed "
                        f"(first {deeper[0][:80]}). A fixed script can't know those names")
+        # A real agent tool thinks for uneven lengths of time, so its pauses look like a person's. What a person
+        # at a terminal doesn't do is write each step the way models do. Only counts with the follow-ups above:
+        # a script can carry the same habits, but it can't follow up.
+        habits = [label for rx, label in LLM_STYLE if rx.search("\n".join(inputs)[:65536])]
+        if habits and not (pasted or desktop):
+            score += 1
+            reasons.append(f"Its commands are written the way AI models write them: {habits[0]}"
+                           + (f" (and {len(habits) - 1} more such habits)" if len(habits) > 1 else ""))
     if cls is None:
         if not cmds:
             cls = "script"

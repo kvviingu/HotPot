@@ -36,6 +36,30 @@ class AgentScoring(unittest.TestCase):
         self.assertEqual(x["cls"], "agent_suspected")
         self.assertTrue(any("Followed up" in r for r in x["reasons"]))
 
+    # what Claude Code sent through the bridge: long chains with section headers, uneven thinking time
+    TOOL = ["id; uname -a; hostname; pwd",
+            "cat /etc/motd 2>/dev/null; echo '--- services ---'; systemctl list-units --type=service",
+            "ls -la /etc/nginx/sites-enabled/ 2>/dev/null; echo '=== configs ==='; ls -la /var/www/app/",
+            "cat /var/www/app/.env; echo '=== composer ==='; cat /var/www/app/composer.json",
+            "echo '=== backup script ==='; cat /usr/local/bin/app-backup.sh; ls -la /srv/dumps",
+            "echo '=== dumps ==='; head -c 300 /srv/dumps/full-2026.sql"]
+    TOOL_GAPS = [4, 31, 6, 9, 48, 7]
+
+    def test_agent_tool_with_uneven_pauses_is_an_agent(self):
+        x = session("SSH-2.0-paramiko_4.0.0", self.TOOL, self.TOOL_GAPS)
+        self.assertEqual(x["cls"], "agent_suspected")
+        self.assertTrue(any("the way AI models write" in r for r in x["reasons"]))
+
+    def test_the_same_commands_from_a_desktop_terminal_stay_a_person(self):
+        x = session("SSH-2.0-PuTTY_Release_0.85", self.TOOL, self.TOOL_GAPS)
+        self.assertEqual(x["cls"], "human_like")
+
+    def test_model_style_without_follow_ups_is_not_an_agent(self):
+        cmds = ["id; uname -a", "echo '=== disk ==='; df -h 2>/dev/null", "echo '=== mem ==='; free -m",
+                "echo '=== net ==='; ip a 2>/dev/null", "echo '=== users ==='; w", "ps aux"]
+        x = session("SSH-2.0-paramiko_4.0.0", cmds, [6.8, 8.7, 2.6, 10.9, 1.7, 2.6])
+        self.assertNotEqual(x["cls"], "agent_suspected")
+
     def test_script_with_random_sleeps_is_not_an_agent(self):
         # paced and varied, but nothing it asks for came from an earlier listing
         x = session("SSH-2.0-paramiko_3.4.0", self.EXPLORE + ["ls /var/www", "cat /root/.bash_history"],
