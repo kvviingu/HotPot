@@ -161,7 +161,9 @@ class BridgeEndToEnd(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         bridge_file, labels = os.path.join(tmp.name, "bridge.json"), []
         args = argparse.Namespace(host="h", port=22, user="root", tool="claude-code", note="")
+        client = os.path.join(tmp.name, "srv-tools", ev.CLIENT_NAME)
         with mock.patch.multiple(ev, BRIDGE=bridge_file, DATA=tmp.name, Shell=FakeShell, need_paramiko=lambda: True,
+                                 CLIENT_DIR=os.path.dirname(client),
                                  login=lambda *a: ("root", "x"),
                                  dashboard_config=lambda: {"own_ips": [OWN]},
                                  add_label=lambda *a: labels.append(a)), contextlib.redirect_stdout(io.StringIO()):
@@ -177,6 +179,14 @@ class BridgeEndToEnd(unittest.TestCase):
                 with contextlib.redirect_stdout(buf):
                     self.assertEqual(ev.run_one(argparse.Namespace(command=cmd)), 0)
                 outs.append(buf.getvalue().strip())
+            # the neutral client the tool is given: works, and says nothing about what this is
+            import subprocess
+            code = open(client, encoding="utf-8").read().lower()
+            for word in ("honeypot", "hotpot", "eval", "bridge", "agent", "test"):
+                self.assertNotIn(word, code)
+            self.assertNotIn("honeypot", client.lower().replace(tmp.name.lower(), ""))
+            r = subprocess.run([sys.executable, client, "pwd"], capture_output=True, text=True, timeout=30)
+            self.assertEqual((r.returncode, r.stdout.strip()), (0, "ran pwd on 203.0.113.10"))
             FakeShell.ch.closed = True          # the honeypot hangs up: the bridge stops and labels
             t.join(5)
             self.assertFalse(t.is_alive())
@@ -185,6 +195,7 @@ class BridgeEndToEnd(unittest.TestCase):
             self.assertNotIn("fs-main:~#", outs[0])
             self.assertEqual((labels[0][0], labels[0][1]), ("agent", "claude-code"))
             self.assertFalse(os.path.exists(bridge_file))
+            self.assertFalse(os.path.exists(client))
             with contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(ev.run_one(argparse.Namespace(command="id")), 2)   # no bridge any more
 

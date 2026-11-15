@@ -10,7 +10,8 @@ prints the one you have.
   pauses look like a person's. A Claude Code test session had been called Human-like.
 * **Test real agent tools:** `tools/agent_eval.py bridge` keeps one shell on the honeypot open so a coding
   agent such as Claude Code can run commands through it without ever seeing the password; the session is
-  labelled for the detection report.
+  labelled for the detection report. The command the agent is given has a plain name and path
+  (`srv-tools/rsh.py` in your home folder), so it doesn't give the test away.
 * **Alerts on your phone:** an optional alert address in Settings (ntfy, Discord or Slack) gets a short
   message when a serious problem starts and when it is over. Titles only, no addresses.
 * **Days of history to load** (Settings, 7 by default) caps the dashboard's memory as logs pile up. Older
