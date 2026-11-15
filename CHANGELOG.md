@@ -5,6 +5,9 @@ prints the one you have.
 
 ## Unreleased
 
+* **Test real agent tools:** `tools/agent_eval.py bridge` keeps one shell on the honeypot open so a coding
+  agent such as Claude Code can run commands through it without ever seeing the password; the session is
+  labelled for the detection report.
 * **Alerts on your phone:** an optional alert address in Settings (ntfy, Discord or Slack) gets a short
   message when a serious problem starts and when it is over. Titles only, no addresses.
 * **Days of history to load** (Settings, 7 by default) caps the dashboard's memory as logs pile up. Older

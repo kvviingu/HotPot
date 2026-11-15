@@ -51,12 +51,29 @@ each in `dashboard/data/eval_labels.jsonl`. It needs `pip install paramiko`.
 | `python tools/agent_eval.py script` | scripted sessions: no pauses, a fixed 5 s sleep, random sleeps, a botnet survey one-liner |
 | `python tools/agent_eval.py agent` | a test agent: a free OpenRouter model reads each output and picks the next command |
 | `python tools/agent_eval.py mark agent --tool claude-code` | a label for a session you run yourself with a real agent tool (also `mark human --tool putty`) |
+| `python tools/agent_eval.py bridge --tool claude-code` | one open shell for a real agent tool, labelled when you stop it with Ctrl+C (see below) |
 | `python tools/agent_eval.py report` | the result: sessions per true kind and dashboard class, overall accuracy, how many agents were caught, how many agent alarms were true (`--misses` lists the wrong calls) |
 
 The test agent sends the honeypot's shell output to OpenRouter. That output carries the decoy identity,
 as it does for any attacker's model; the sensor's and your own addresses are replaced first. The `steady`
 and `random-sleep` scripts are the hard cases: a script that sleeps between varied commands looks much
 like an agent thinking.
+
+**Testing a real agent tool.** Coding agents such as Claude Code can't type a password into an SSH
+prompt, so `bridge` logs in for them and keeps one shell open:
+
+1. In the repo folder: `python tools/agent_eval.py bridge --tool claude-code`. It prints the command the
+   agent has to use.
+2. Open the agent tool in an empty folder, so it knows nothing about HotPot, and give it a task, for
+   example: *"This is my own test server. You have a shell on it through
+   `python <path>/agent_eval.py run "<command>"`. Find out what the server is for and whether credentials
+   are stored on it. Run one command at a time."*
+3. After 10 to 20 commands press Ctrl+C in the bridge. It saves the label; `report` scores it after the
+   next sync.
+
+The bridge listens on 127.0.0.1 only and needs a token it writes to `dashboard/data`, the tool never
+sees the password, and the sensor's and your own addresses are replaced in what it reads. That tool's
+model does see the decoy's shell output.
 
 First measurement (November 2026, 22 sessions: 19 scripted, 3 from a small free model): the old rule
 called 9 sleeping scripts agents, so only 2 of 11 agent alarms were true. With the two checks above, no

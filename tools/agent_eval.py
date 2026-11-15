@@ -8,6 +8,8 @@ it was, and later compares that with the class the dashboard gave each session.
     python tools/agent_eval.py agent             a test agent: a free OpenRouter model picks each command
     python tools/agent_eval.py all               both of the above, one after the other
     python tools/agent_eval.py mark agent --tool claude-code     label a session you run yourself (also: human, script)
+    python tools/agent_eval.py bridge --tool claude-code         keep one shell open for a real agent tool to use
+    python tools/agent_eval.py run "ls -la /root"                what that tool calls: one command through the bridge
     python tools/agent_eval.py report            score the dashboard against the labels
 
 Run it from the PC whose address is in the dashboard's "own IPs": the sessions then stay out of the
@@ -16,13 +18,17 @@ only; the dashboard and hotpot stay stdlib-only).
 
 What leaves this PC: `agent` sends the honeypot's shell output to OpenRouter (free models only). That
 output contains the decoy identity, like every attacker's model sees it; the sensor's and your own
-addresses are replaced before sending.
+addresses are replaced before sending. `bridge` does the same for the tool you point at it: that tool's
+own model sees the shell output.
 """
 import argparse
+import hmac
 import json
 import os
 import random
 import re
+import secrets
+import socket
 import sys
 import time
 import urllib.error
@@ -33,6 +39,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(ROOT, "dashboard", "data")
 LABELS = os.path.join(DATA, "eval_labels.jsonl")
 CREDS = os.path.join(DATA, "eval_login.json")
+BRIDGE = os.path.join(DATA, "eval_bridge.json")     # where `run` finds a running `bridge` (port and token)
+BRIDGE_MAX = 64 * 1024                              # most bytes of one request or reply
 KINDS = ("agent", "script", "human")
 # which dashboard classes count as right for each kind of session
 EXPECTED = {"agent": {"agent_suspected", "agent_confirmed"}, "script": {"script", "known_bot"},
@@ -459,6 +467,122 @@ def run_agent(args) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------- bridge for real agent tools
+# A coding agent such as Claude Code cannot type a password into an SSH prompt. `bridge` logs in for it and
+# keeps one shell open, like an agent framework would; the tool then runs `agent_eval.py run "<command>"`
+# for each step. It listens on 127.0.0.1 only and wants the token from eval_bridge.json, so only programs
+# of this user on this PC can use it. The tool never sees the password.
+
+def bridge_answer(line: bytes, token: str, run) -> dict:
+    """One request line -> the reply. `run(cmd) -> output` is the open shell."""
+    try:
+        req = json.loads(line.decode("utf-8"))
+        cmd = req["cmd"]
+    except (ValueError, KeyError, TypeError, UnicodeDecodeError):
+        return {"error": "bad request"}
+    if not isinstance(cmd, str) or not hmac.compare_digest(str(req.get("token", "")), token):
+        return {"error": "wrong token"}
+    cmd = cmd.strip()
+    if not cmd or len(cmd) > 4000 or "\n" in cmd or "\r" in cmd:
+        return {"error": "send one command on one line (up to 4000 characters)"}
+    return {"out": run(cmd)}
+
+
+def strip_echo(out: str, cmd: str) -> str:
+    """The shell echoes the command and ends with its prompt; the tool only wants what the command printed."""
+    lines = out.split("\n")
+    first = lines[0].strip() if lines else ""
+    if first == cmd or first.endswith(("# " + cmd, "$ " + cmd)):
+        lines = lines[1:]
+    if lines and re.search(r"[#$] ?$", lines[-1]) and len(lines[-1]) < 200:
+        lines = lines[:-1]
+    return "\n".join(lines).strip("\n")
+
+
+def run_bridge(args) -> int:
+    if not need_paramiko():
+        return 1
+    host, port = target(args)
+    hide = [host] + list(dashboard_config().get("own_ips") or [])
+    user, pw = login(host, port, args.user)
+    try:
+        sh = Shell(host, port, user, pw)
+    except Exception as e:
+        print(f"Could not open the shell ({type(e).__name__}). Is the honeypot up? Try again in a minute.")
+        return 1
+    t0, n, token = time.time(), 0, secrets.token_hex(16)
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(4)
+    srv.settimeout(1.0)
+    os.makedirs(DATA, exist_ok=True)
+    with open(BRIDGE, "w", encoding="utf-8") as f:
+        json.dump({"port": srv.getsockname()[1], "token": token}, f)
+    here = os.path.abspath(__file__)
+    print(f"Shell open; this session will be labelled: agent ({args.tool}).\n"
+          f"Give the agent tool this command to run, one shell command at a time:\n\n"
+          f'    python "{here}" run "<command>"\n\n'
+          "Press Ctrl+C here when it is done.")
+
+    def run(cmd):
+        return strip_echo(clean_output(sh.run(cmd), hide), cmd)
+
+    try:
+        while not sh.ch.closed:
+            try:
+                conn, _ = srv.accept()
+            except socket.timeout:
+                continue
+            with conn:
+                conn.settimeout(60)
+                try:
+                    line = conn.makefile("rb").readline(BRIDGE_MAX)
+                    ans = bridge_answer(line, token, run)
+                    if "out" in ans:
+                        n += 1
+                        print(f"  {n:3}  $ {json.loads(line)['cmd'][:100]}")
+                    conn.sendall(json.dumps(ans).encode("utf-8")[:BRIDGE_MAX] + b"\n")
+                except (OSError, ValueError) as e:
+                    print(f"  a request failed ({type(e).__name__})")
+        else:
+            print("The honeypot closed the shell.")
+    except KeyboardInterrupt:
+        pass
+    finally:
+        srv.close()
+        sh.close()
+        try:
+            os.remove(BRIDGE)
+        except OSError:
+            pass
+    if n >= 3:
+        add_label("agent", args.tool, t0, time.time(), f"{n} commands, bridge" + (", " + args.note if args.note else ""))
+        print(f"\nSaved: {n} commands as agent ({args.tool}). Wait a minute for the dashboard to sync, then:\n"
+              "    python tools/agent_eval.py report --misses")
+    else:
+        print(f"\nOnly {n} command(s) ran: too short to count, not labelled.")
+    return 0
+
+
+def run_one(args) -> int:
+    """What the agent tool calls: one command through the running bridge."""
+    try:
+        with open(BRIDGE, encoding="utf-8") as f:
+            b = json.load(f)
+        with socket.create_connection(("127.0.0.1", int(b["port"])), timeout=5) as c:
+            c.settimeout(90)
+            c.sendall(json.dumps({"token": b["token"], "cmd": args.command}).encode("utf-8") + b"\n")
+            ans = json.loads(c.makefile("rb").readline(BRIDGE_MAX + 100).decode("utf-8"))
+    except (OSError, ValueError, KeyError):
+        print("No shell is open. Ask the person running this test to start the bridge.", file=sys.stderr)
+        return 2
+    if "error" in ans:
+        print(ans["error"], file=sys.stderr)
+        return 2
+    print(ans.get("out") or "(no output)")
+    return 0
+
+
 def run_mark(args) -> int:
     print(f"Labelling the next SSH session(s) from this PC as: {args.kind} ({args.tool}).")
     input("Press Enter right before you start the session… ")
@@ -494,12 +618,19 @@ def main(argv=None) -> int:
     p.add_argument("kind", choices=KINDS)
     p.add_argument("--tool", required=True, help="what you used, e.g. claude-code, codex, putty")
     p.add_argument("--note", default="")
+    p = sub.add_parser("bridge", help="keep one shell open for a real agent tool (Claude Code, Codex, ...)")
+    ssh_opts(p)
+    p.add_argument("--tool", required=True, help="the tool you will point at it, e.g. claude-code")
+    p.add_argument("--note", default="")
+    p = sub.add_parser("run", help="run one command through the open bridge (what the agent tool calls)")
+    p.add_argument("command")
     p = sub.add_parser("report", help="score the dashboard against the labels")
     p.add_argument("--misses", action="store_true", help="list each wrong call")
     args = ap.parse_args(argv)
     if args.cmd == "all":
         return run_script(args) or run_agent(args)
-    return {"script": run_script, "agent": run_agent, "mark": run_mark, "report": report}[args.cmd](args)
+    return {"script": run_script, "agent": run_agent, "mark": run_mark, "report": report, "bridge": run_bridge,
+            "run": run_one}[args.cmd](args)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 """tools/agent_eval.py: labelled test sessions and the score of the dashboard's classes against them."""
+import json
 import os
 import sys
 import unittest
@@ -102,6 +103,90 @@ class TestAgent(unittest.TestCase):
     def test_paid_models_are_never_called(self):
         with self.assertRaises(RuntimeError):
             ev.ask_model("k", ["openai/gpt-paid", "anthropic/claude-paid"], [])   # no network call happens
+
+
+class Bridge(unittest.TestCase):
+    """The local bridge a real agent tool sends its commands through."""
+
+    def ask(self, req, token="t0k"):
+        ran = []
+        ans = ev.bridge_answer(json.dumps(req).encode() if isinstance(req, dict) else req, token,
+                               lambda c: ran.append(c) or "out:" + c)
+        return ans, ran
+
+    def test_a_command_with_the_right_token_runs(self):
+        self.assertEqual(self.ask({"token": "t0k", "cmd": " id "}), ({"out": "out:id"}, ["id"]))
+
+    def test_wrong_or_missing_token_runs_nothing(self):
+        for req in ({"token": "nope", "cmd": "id"}, {"cmd": "id"}, {"token": None, "cmd": "id"}):
+            ans, ran = self.ask(req)
+            self.assertEqual((ans, ran), ({"error": "wrong token"}, []))
+
+    def test_bad_requests_run_nothing(self):
+        for req in (b"not json", b"[1]", {"token": "t0k"}, {"token": "t0k", "cmd": 5}, {"token": "t0k", "cmd": "  "},
+                    {"token": "t0k", "cmd": "id\nrm -rf /"}, {"token": "t0k", "cmd": "x" * 5000}):
+            ans, ran = self.ask(req)
+            self.assertIn("error", ans)
+            self.assertEqual(ran, [])
+
+    def test_echo_and_prompt_are_removed_from_the_output(self):
+        out = "ls -la /root\ntotal 8\n-rw------- 1 root root 12 RUNBOOK.md\nroot@fs-main:~# "
+        self.assertEqual(ev.strip_echo(out, "ls -la /root"), "total 8\n-rw------- 1 root root 12 RUNBOOK.md")
+        self.assertEqual(ev.strip_echo("uid=0(root)", "id"), "uid=0(root)")
+
+
+class BridgeEndToEnd(unittest.TestCase):
+    """bridge and run talking over the local socket, with a fake shell instead of the honeypot."""
+
+    def test_commands_go_through_and_the_session_is_labelled(self):
+        import argparse, contextlib, io, tempfile, threading, time
+        from unittest import mock
+
+        class FakeChannel:
+            closed = False
+
+        class FakeShell:
+            ch = FakeChannel()
+
+            def __init__(self, *a):
+                pass
+
+            def run(self, cmd):
+                return f"{cmd}\nran {cmd} on {OWN}\nroot@fs-main:~# "
+
+            def close(self):
+                pass
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        bridge_file, labels = os.path.join(tmp.name, "bridge.json"), []
+        args = argparse.Namespace(host="h", port=22, user="root", tool="claude-code", note="")
+        with mock.patch.multiple(ev, BRIDGE=bridge_file, DATA=tmp.name, Shell=FakeShell, need_paramiko=lambda: True,
+                                 login=lambda *a: ("root", "x"),
+                                 dashboard_config=lambda: {"own_ips": [OWN]},
+                                 add_label=lambda *a: labels.append(a)), contextlib.redirect_stdout(io.StringIO()):
+            t = threading.Thread(target=ev.run_bridge, args=(args,), daemon=True)
+            t.start()
+            for _ in range(100):
+                if os.path.exists(bridge_file):
+                    break
+                time.sleep(0.05)
+            outs = []
+            for cmd in ("id", "uname -a", "ls /root"):
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    self.assertEqual(ev.run_one(argparse.Namespace(command=cmd)), 0)
+                outs.append(buf.getvalue().strip())
+            FakeShell.ch.closed = True          # the honeypot hangs up: the bridge stops and labels
+            t.join(5)
+            self.assertFalse(t.is_alive())
+            # echo, prompt and own address gone (the bridge's own progress line shares stdout in this test)
+            self.assertEqual(outs[0].splitlines()[-1], "ran id on 203.0.113.10")
+            self.assertNotIn("fs-main:~#", outs[0])
+            self.assertEqual((labels[0][0], labels[0][1]), ("agent", "claude-code"))
+            self.assertFalse(os.path.exists(bridge_file))
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(ev.run_one(argparse.Namespace(command="id")), 2)   # no bridge any more
 
 
 if __name__ == "__main__":
