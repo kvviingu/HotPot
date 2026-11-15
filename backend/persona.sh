@@ -39,16 +39,17 @@ x bash -c 'set -e; mkdir -p /tmp/p && tar xzf /root/persona.tar.gz -C /tmp/p && 
 x bash -s <<'EOS'
 set -e
 cd /tmp/p
+rm -rf /etc/nb /var/backups/nb          # folders of earlier versions, never renamed per install
 age() { touch -h -d "$1" "$2" 2>/dev/null || true; }
-for d in home root var/www usr/local/bin etc/cron.d etc/nb-ops etc/nginx/sites-available; do
-  [ -d "$d" ] || continue
-  find "$d" -mindepth 1 \( -type f -o -type d \) | while read -r f; do
-    [ -e "/$f" ] || continue
-    case "/$f" in /home/*/*|/root/*|/var/www/*|/usr/local/bin/*|/etc/cron.d/*|/etc/nb-ops/*|/etc/nginx/*) ;; *) continue ;; esac
-    n=$(printf '%s' "$f" | cksum | cut -d' ' -f1)
-    age "$(( n % 330 + 25 )) days ago $(( n / 7 % 86400 )) seconds ago" "/$f"     # not all at one time of day
-  done
-done
+k=0
+while read -r f; do
+  [ -e "/$f" ] || { echo "persona: /$f is not on the box" >&2; continue; }
+  n=$(printf '%s' "$f" | cksum | cut -d' ' -f1)
+  age "$(( n % 330 + 25 )) days ago $(( n / 7 % 86400 )) seconds ago" "/$f"     # not all at one time of day
+  k=$((k + 1))
+done < <(find home root var/www usr/local/bin etc/cron.d etc/nb-ops etc/nginx/sites-available \
+           -mindepth 1 \( -type f -o -type d \) 2>&1 </dev/null)
+echo "persona: dated $k files and folders"
 age "62 days ago" /root/RUNBOOK.md
 age "97 days ago" /var/www/northbridge/.env
 age "1 day ago" /root/.bash_history
@@ -56,6 +57,9 @@ age "6 days ago" /home/deploy/.bash_history
 age "3 hours ago" /var/www/northbridge/storage/logs/laravel.log
 age "210 days ago" /etc/nb-ops
 age "340 days ago" /var/www/northbridge
+age "292 days ago" /usr/local/bin
+age "171 days ago" /etc/cron.d
+age "236 days ago" /etc/nginx/sites-available
 
 # nightly dumps of the last 30 days, each a little larger than the one before
 B=/var/backups/nb-intranet
