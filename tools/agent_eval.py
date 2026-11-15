@@ -199,7 +199,11 @@ def report(args) -> int:
     base = f"http://127.0.0.1:{int(dashboard_config().get('port', 8787))}"
     try:
         own = set(fetch_json(base + "/api/meta").get("own_ips") or [])
-        sessions = fetch_json(base + "/api/sessions?range=all&own=1&kind=ssh")["sessions"]
+        sessions = {}       # asked for per own address: the unfiltered list is cut to the newest few thousand
+        for ip in sorted(own):
+            url = base + "/api/sessions?range=all&own=1&kind=ssh&q=" + urllib.parse.quote(ip)
+            sessions.update((s["id"], s) for s in fetch_json(url)["sessions"])
+        sessions = list(sessions.values())
     except (OSError, ValueError, KeyError) as e:
         print(f"The dashboard is not answering on {base} ({type(e).__name__}). Start it, wait for a sync, try again.")
         return 1
