@@ -505,12 +505,13 @@ def run_bridge(args) -> int:
     host, port = target(args)
     hide = [host] + list(dashboard_config().get("own_ips") or [])
     user, pw = login(host, port, args.user)
+    t0 = time.time()                    # before the shell opens: the session starts at the connection
     try:
         sh = Shell(host, port, user, pw)
     except Exception as e:
         print(f"Could not open the shell ({type(e).__name__}). Is the honeypot up? Try again in a minute.")
         return 1
-    t0, n, token = time.time(), 0, secrets.token_hex(16)
+    n, token = 0, secrets.token_hex(16)
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.bind(("127.0.0.1", 0))
     srv.listen(4)
