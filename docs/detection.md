@@ -34,7 +34,9 @@ A session that is paced and varied but never follows up is "Not enough data": it
 or for most of a minute, so its pauses look like a person's. It still follows up, and it writes its
 commands the way models do: section-header echoes, `|| echo` fallbacks, errors silenced on every step.
 Follow-ups plus one such habit, from a client that is not a desktop terminal, make the session "Suspected
-AI agent" whatever the pauses. The habits alone never do: a script can carry them.
+AI agent" whatever the pauses. So does a single follow-up with two habits: an agent learns most paths from
+the files it reads, not from listings, so it may show only one. The habits alone never count (a script can
+carry them), and neither does a single follow-up alone (it could be luck).
 
 ## AI-agent score (0-100)
 
@@ -89,8 +91,10 @@ script is called an agent and both full agent sessions still are; the random-sle
 label sessions from real agent tools (`mark agent`) before trusting the numbers further.
 
 First real tool (Claude Code through the bridge, 9 commands): called Human-like, because its pauses were
-uneven. That led to the rule for agent tools above. With it, that session is a suspected agent and no
-other session of the reference sensor's week changed class.
+uneven. That led to the rule for agent tools above. A second run (7 commands) had one follow-up only and
+was missed again, which added the single-follow-up case. With both, the two sessions are suspected agents
+and no other session of the reference sensor's week changed class. Both times the tool also said, when
+asked, that the server looked like a honeypot: the line addressed to AI agents gave it away first.
 
 ## Tripwires
 

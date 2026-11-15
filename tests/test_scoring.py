@@ -54,6 +54,21 @@ class AgentScoring(unittest.TestCase):
         x = session("SSH-2.0-PuTTY_Release_0.85", self.TOOL, self.TOOL_GAPS)
         self.assertEqual(x["cls"], "human_like")
 
+    def test_one_follow_up_with_two_model_habits_is_an_agent(self):
+        # the second Claude Code run: it learned most paths from file contents, so only one listing follow-up
+        cmds = ["uname -a; echo '---'; id; echo '---'; uptime",
+                "systemctl list-units --type=service --no-pager; echo '--- LISTENING ---'; ss -tulpn 2>/dev/null",
+                "ls -la /var/backups/app/ 2>/dev/null; echo '=== root dir ==='; ls -la /root/ 2>/dev/null",
+                "echo '=== notes ==='; cat /root/HANDOVER.md; echo '=== history ==='; cat /root/.bash_history",
+                "echo '=== cron ==='; cat /etc/cron.d/app-backup 2>/dev/null; ls -la /usr/local/bin/app-backup.sh"]
+        x = session("SSH-2.0-paramiko_4.0.0", cmds, [5, 22, 8, 41, 10])
+        self.assertEqual(x["cls"], "agent_suspected")
+
+    def test_one_follow_up_alone_is_not_an_agent(self):
+        cmds = ["id", "uname -a", "ls -la /opt/app", "cat /opt/app/config.yml", "df -h", "ps aux"]
+        x = session("SSH-2.0-paramiko_4.0.0", cmds, [5, 22, 8, 41, 10, 3])
+        self.assertNotEqual(x["cls"], "agent_suspected")
+
     def test_model_style_without_follow_ups_is_not_an_agent(self):
         cmds = ["id; uname -a", "echo '=== disk ==='; df -h 2>/dev/null", "echo '=== mem ==='; free -m",
                 "echo '=== net ==='; ip a 2>/dev/null", "echo '=== users ==='; w", "ps aux"]
