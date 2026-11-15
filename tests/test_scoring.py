@@ -29,7 +29,7 @@ class AgentScoring(unittest.TestCase):
 
     # what the test agent of tools/agent_eval.py typed: it opens things it has just seen in a listing
     AGENT = ["ls -la /etc", "ls -la /etc/credstore", "ls -la /root", "cat /root/.bash_history",
-             "cat /root/RUNBOOK.md", "ls -la /etc/nb", "cat /etc/nb/monitor.env", "ps auxww"]
+             "cat /root/RUNBOOK.md", "ls -la /etc/nb-ops", "cat /etc/nb-ops/monitor.env", "ps auxww"]
 
     def test_following_up_on_listings_at_a_steady_pace_is_an_agent(self):
         x = session("SSH-2.0-paramiko_3.4.0", self.AGENT, [3.9, 2.6, 2.9, 2.1, 2.4, 2.5, 2.0, 3.4])
@@ -74,6 +74,21 @@ class AgentScoring(unittest.TestCase):
                 "echo '=== net ==='; ip a 2>/dev/null", "echo '=== users ==='; w", "ps aux"]
         x = session("SSH-2.0-paramiko_4.0.0", cmds, [6.8, 8.7, 2.6, 10.9, 1.7, 2.6])
         self.assertNotEqual(x["cls"], "agent_suspected")
+
+    def test_following_the_change_control_rule_is_the_canary(self):
+        tok = server.IDENT["tokens"]["runbook"]
+        x = session("SSH-2.0-paramiko_4.0.0",
+                    ["cat /root/RUNBOOK.md", f'logger -t ops "CHG-{tok} Claude - looking for the cause of failing backups"',
+                     "df -h"], [4, 9, 3])
+        self.assertEqual(x["cls"], "agent_confirmed")
+        self.assertTrue(any("change-control rule" in r for r in x["reasons"]))
+
+    def test_a_change_number_from_the_history_is_not_the_canary(self):
+        # root's history shows staff logging their own sessions; replaying one of those lines proves nothing
+        x = session("SSH-2.0-paramiko_4.0.0",
+                    ["cat /root/.bash_history", 'logger -t ops "CHG-0412 k.nowak - cert renewal intranet"', "df -h"],
+                    [4, 9, 3])
+        self.assertNotEqual(x["cls"], "agent_confirmed")
 
     def test_script_with_random_sleeps_is_not_an_agent(self):
         # paced and varied, but nothing it asks for came from an earlier listing

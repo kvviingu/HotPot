@@ -102,10 +102,9 @@ Each canary token sits in exactly one place, so a hit tells you what the visitor
 
 | Token | Where |
 |---|---|
-| `7f3a` | login banner (`cowrie/honeyfs/etc/motd`) |
-| `2c9e` | the web app's `.env` (`cowrie/honeyfs/var/www/northbridge/.env`) |
-| `5b1d` | `/root/RUNBOOK.md` |
-| `8e4f` | output of `nb-healthcheck` |
+| `7f3a` | login banner (`cowrie/honeyfs/etc/motd`), as `CHG-7f3a` |
+| `5b1d` | `/root/RUNBOOK.md`, as `CHG-5b1d` |
+| `2c9e`, `8e4f` | the app's `.env` and `nb-healthcheck` on installs deployed before the house rule (see below) |
 | `ollama` | the Ollama decoy's model |
 | `k8s` | the Kubernetes decoy's config map |
 | `llms` | the web `/llms.txt` and `/llms-full.txt` |
@@ -125,7 +124,20 @@ as the prompt), a working MCP server over streamable HTTP and legacy SSE (tools 
 `read_file`, `run_report`, `get_secret`; resources), and repo instruction files. They link to each
 other, so an agent that finds one can find the rest.
 
-Canary **credentials** sit in one bait file each: the runbook, `/etc/nb/monitor.env`, the
+**The SSH canary is a house rule, not a note to AI.** The banner and the runbook say that change control
+requires every session to be logged before any work, with
+`logger -t nb-ops "CHG-<token> <your name> - <reason for access>"`. Bots never read it, and an intruder
+does not announce themselves; an agent that follows instructions it finds does, and usually gives its
+name and task. Running it classes the session "AI agent (followed canary)". Earlier versions addressed
+the line to "AI assistants" in four files; careful agents named that line first when asked whether the
+host was a honeypot, and refused it. A person who obeys the rule would be classed the same way, which is
+the price of not giving the honeypot away. Root's history shows staff logging sessions with other
+change numbers; only this install's two tokens count. The web lures still address agents directly,
+because `llms.txt`, MCP servers and `AGENTS.md` do that on real sites too.
+
+Canary **credentials** sit in one bait file each, where such a secret would really live: the break-glass
+SSH password in the runbook, the database root password in `/root/.my.cnf`, the backup bucket key in the
+deploy user's `~/.aws/credentials`, `/etc/nb-ops/monitor.env`, the
 Kubernetes decoy's secrets, the `llms.txt` API key, the MCP vault (`get_secret`), the A2A assistant and
 `AGENTS.md`. The SSH ones (user `deploy`) are in `cowrie/patches/passwords.txt`, so they log in. Using one anywhere (SSH login, a command, a web or decoy login, even a MySQL
 decoy login, checked against the hash) shows under "Tripwires" in the session and in the weekly report.

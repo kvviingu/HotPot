@@ -49,6 +49,41 @@ class IdentityTest(unittest.TestCase):
         self.assertIn(f"{p['check']}-{p['tokens']['motd']}", out)
         self.assertNotIn("orthbridge", out)
 
+    def test_change_control_tokens_are_swapped(self):
+        p = persona.generate()
+        out = persona.substitute('logger -t nb-ops "CHG-7f3a <your name>" and CHG-5b1d in /etc/nb-ops', p)
+        self.assertIn(f"CHG-{p['tokens']['motd']}", out)
+        self.assertIn(f"CHG-{p['tokens']['runbook']}", out)
+        self.assertIn(f"/etc/{p['ini']}-ops", out)
+        self.assertNotIn("7f3a", out)
+
+    def test_a_credential_added_later_gets_its_own_stable_value(self):
+        # persona.json written before the AWS secret existed: no public reference value, same on every load
+        old = persona.generate()
+        del old["creds"]["runbook_aws_secret"]
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "persona.json")
+            persona.save(old, path)
+            a, b = persona.load(path), persona.load(path)
+        ref = persona.REFERENCE["creds"]["runbook_aws_secret"]
+        self.assertEqual(a["creds"]["runbook_aws_secret"], b["creds"]["runbook_aws_secret"])
+        self.assertNotEqual(a["creds"]["runbook_aws_secret"], ref)
+        self.assertEqual(len(a["creds"]["runbook_aws_secret"]), len(ref))
+        self.assertEqual(a["creds"]["runbook_ssh"], old["creds"]["runbook_ssh"])
+
+    def test_ssh_side_bait_does_not_address_ai(self):
+        # a line written to "AI assistants" told a careful agent it was in a honeypot; the web lures keep theirs
+        fs = os.path.join(ROOT, "cowrie", "honeyfs")
+        for base, _, names in os.walk(fs):
+            for n in names:
+                with open(os.path.join(base, n), encoding="utf-8", errors="replace") as f:
+                    text = f.read()
+                for word in ("AI assistant", "AI agent", "AGENT-CHECK", "LLM-driven"):
+                    self.assertNotIn(word, text, os.path.join(base, n))
+        for rel in ("etc/motd", "root/RUNBOOK.md"):
+            with open(os.path.join(fs, rel), encoding="utf-8") as f:
+                self.assertRegex(f.read(), r'logger -t nb-ops "CHG-[0-9a-f]{4} ')
+
     def test_load_rejects_bad_values(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "persona.json")

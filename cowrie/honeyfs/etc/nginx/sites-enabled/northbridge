@@ -19,7 +19,7 @@ server {
     }
 
     location /admin/backups/ {
-        alias /var/backups/nb/;
+        alias /var/backups/nb-intranet/;
         autoindex on;
     }
 

@@ -8,8 +8,10 @@ values and credentials when attackers use them.
 
 Stdlib only; imported by hotpot.py and dashboard/server.py.
 """
+import hashlib
 import json
 import os
+import random
 import re
 import secrets
 
@@ -24,11 +26,16 @@ REFERENCE = {
     "ini": "nb",
     "check": "NB-AGENT-CHECK",
     "ip": "10.0.0.15",
-    # canary values (NB-AGENT-CHECK-<token>) of the files on the box
+    # canary values of the files on the box. The banner and the runbook carry theirs in the change-control
+    # command (CHG-<token>); "env" and "health" were places of the older NB-AGENT-CHECK-<token> form and are
+    # kept so older logs still resolve.
     "tokens": {"motd": "7f3a", "env": "2c9e", "runbook": "5b1d", "health": "8e4f"},
+    "chg": "CHG",
     # tripwire credentials: each exists in one bait file only
     "creds": {
         "runbook_ssh": "Brk-Gl4ss!fs01", "runbook_db": "Rt#db01-breakglass", "runbook_aws": "AKIAZ7NB4FS01KQ2M7XD",
+        # the reference value is a placeholder on purpose; every install gets 40 random characters
+        "runbook_aws_secret": "REFERENCE-ONLY-not-a-real-aws-secret-key",
         "monitor_redis": "Mon!tor-rds-7731", "monitor_es": "Es-M0n!2291",
         "k8s_db": "Kub3-db-Secr3t!", "k8s_redis": "Kub3-rds-Secr3t!", "k8s_registry": "Kub3-reg-Pull#77",
         "llms_key": "nbk_live_7Qm2Xc9TfA1LrP4w",
@@ -61,13 +68,31 @@ VISIBLE_INI_NAMES = ("healthcheck", "dispatch", "ops", "intranet", "app", "admin
 UPPER, LOWER, DIGIT = "ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz", "23456789"
 
 
-def _reshape(value: str, keep: int = 0) -> str:
+def _reshape(value: str, keep: int = 0, rng=secrets) -> str:
     """A new random value shaped like `value`: same length, letter case and digits, same punctuation."""
     out = list(value[:keep])
     for ch in value[keep:]:
         pool = UPPER if ch.isupper() else LOWER if ch.islower() else DIGIT if ch.isdigit() else None
-        out.append(secrets.choice(pool) if pool else ch)
+        out.append(rng.choice(pool) if pool else ch)
     return "".join(out)
+
+
+def _fresh(key: str, value: str, rng=secrets) -> str:
+    """A new value for one credential, in the shape its kind has."""
+    if key.endswith("_aws_secret"):
+        return "".join(rng.choice(UPPER + LOWER + DIGIT) for _ in range(40))
+    if value.startswith("AKIA"):
+        return "AKIA" + "".join(rng.choice(UPPER + DIGIT) for _ in range(len(value) - 4))
+    return _reshape(value, rng=rng)
+
+
+def _derived(key: str, value: str, p: dict) -> str:
+    """A credential added to the repo after this install's persona.json was written: its value is worked
+    out from the identity the install already has, the same on every run, so it never has the public
+    reference value and nothing needs saving."""
+    seed = hashlib.sha256(json.dumps([key, p.get("check"), p.get("tokens"), p.get("creds")],
+                                     sort_keys=True).encode("utf-8")).digest()
+    return _fresh(key, value, random.Random(seed))
 
 
 def generate(ip: str = "") -> dict:
@@ -85,12 +110,10 @@ def generate(ip: str = "") -> dict:
                 break
     creds = {}
     for k, v in REFERENCE["creds"].items():
-        if v.startswith("AKIA"):
-            creds[k] = "AKIA" + "".join(secrets.choice(UPPER + DIGIT) for _ in range(len(v) - 4))
-        elif v.startswith("nbk_live_"):
+        if v.startswith("nbk_live_"):
             creds[k] = f"{ini}k_live_" + _reshape(v[len("nbk_live_"):])
         else:
-            creds[k] = _reshape(v)
+            creds[k] = _fresh(k, v)
     return {"version": 1, "brand": brand, "industry": industry, "host": secrets.choice(HOSTS), "ini": ini,
             "check": f"{ini.upper()}-{secrets.choice(CHECK_WORDS[0])}-{secrets.choice(CHECK_WORDS[1])}",
             "ip": ip or REFERENCE["ip"], "tokens": tokens, "creds": creds}
@@ -110,7 +133,10 @@ def load(path: str = None) -> dict:
             if not isinstance(p.get(k), str) or not re.fullmatch(r"[A-Za-z0-9 .-]{1,40}", p[k]):
                 p[k] = ref[k]
         p["tokens"] = {k: str(p.get("tokens", {}).get(k, v)) for k, v in ref["tokens"].items()}
-        p["creds"] = {k: str(p.get("creds", {}).get(k, v)) for k, v in ref["creds"].items()}
+        own = {k: str(v) for k, v in (p.get("creds") or {}).items() if k in ref["creds"]}
+        fresh = bool(own) and own != {k: ref["creds"][k] for k in own}       # an install's own values
+        p["creds"] = {k: own[k] if k in own else _derived(k, v, {**p, "creds": own}) if fresh else v
+                      for k, v in ref["creds"].items()}
         for k, rx in SYSTEM_RE.items():
             if not isinstance(p.get(k), str) or not re.fullmatch(rx, p[k]):
                 p.pop(k, None)
@@ -145,6 +171,7 @@ def identity_pairs(p: dict) -> list:
     r = REFERENCE
     rb, ri, pb, pi = r["brand"], r["industry"], p["brand"], p["industry"]
     out = [(f"{r['check']}-{r['tokens'][k]}", f"{p['check']}-{p['tokens'][k]}") for k in r["tokens"]]
+    out += [(f"{r['chg']}-{r['tokens'][k]}", f"{r['chg']}-{p['tokens'][k]}") for k in r["tokens"]]
     out += [(r["creds"][k], p["creds"][k]) for k in r["creds"]]
     out += [
         (r["check"], p["check"]),

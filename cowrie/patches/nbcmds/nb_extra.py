@@ -710,6 +710,14 @@ class Command_hostnamectl(HoneyPotCommand):
                    "Firmware Version: 1.6.6\n   Firmware Date: Tue 2023-08-22\n    Firmware Age: 3y 2month 2w 6d\n")
 
 
+class Command_logger(HoneyPotCommand):
+    """util-linux logger: writes to syslog and prints nothing (the change-control rule in the banner uses it)."""
+    resolve_args = False
+
+    def call(self) -> None:
+        pass
+
+
 class Command_editor_noterm(HoneyPotCommand):
     def call(self) -> None:
         self.errorWrite("Error opening terminal: xterm-256color.\n")
@@ -787,6 +795,7 @@ _reg(Command_python3, "python3", "python3.12", "/usr/bin/python3", "/usr/bin/pyt
 _reg(Command_lsb_release, "lsb_release", "/usr/bin/lsb_release")
 _reg(Command_hostnamectl, "hostnamectl", "/usr/bin/hostnamectl")
 _reg(Command_editor_noterm, "nano", "pico", "/usr/bin/nano", "/usr/bin/pico")
+_reg(Command_logger, "logger", "/usr/bin/logger")
 for _c in ("ifconfig", "netstat", "route", "arp", "python", "locate", "emacs"):
     commands[_c] = _not_installed(_c)
 

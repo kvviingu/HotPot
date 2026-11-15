@@ -116,7 +116,7 @@ BINARIES = {
     "/usr/bin/ps": 154_440, "/usr/bin/top": 133_352, "/usr/bin/df": 100_720, "/usr/bin/mount": 51_872,
     "/usr/bin/ss": 162_872, "/usr/bin/free": 31_048, "/usr/bin/lscpu": 112_824, "/usr/bin/lsblk": 133_432,
     "/usr/bin/getconf": 35_208, "/usr/bin/dmesg": 76_888, "/usr/bin/systemctl": 1_436_104,
-    "/usr/bin/lsb_release": 1_766, "/usr/bin/hostnamectl": 39_544, "/usr/bin/mysql": 7_651_168,
+    "/usr/bin/lsb_release": 1_766, "/usr/bin/logger": 35_128, "/usr/bin/hostnamectl": 39_544, "/usr/bin/mysql": 7_651_168,
     "/usr/bin/php8.3": 5_710_032, "/usr/bin/python3.12": 8_019_136, "/usr/bin/nano": 283_144,
     "/usr/sbin/ip": 788_000, "/usr/sbin/nginx": 1_252_448, "/usr/sbin/service": 9_237,
     "/usr/sbin/inetd": 39_352, "/usr/local/bin/ollama": 1_045_532_352,

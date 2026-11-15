@@ -155,7 +155,12 @@ STOCK_NAMES = frozenset("""
 PASTE_MARK = re.compile(r"\x1b?\[20[01]~")
 # Desktop SSH clients people type into (bots and agent frameworks use SSH libraries instead).
 DESKTOP_SSH = re.compile(r"PuTTY|KiTTY|MobaXterm|Termius|SecureCRT|Xshell|Bitvise|SmarTTY|Tabby|WindTerm", re.I)
-CANARY_CMD = re.compile(re.escape(IDENT["check"]) + r"|agent-verify", re.I)
+# The SSH-side canary is a house rule in the login banner and the runbook: "log your session before any
+# work: logger -t <ini>-ops "CHG-<token> <name> - <reason>"". Bots never read it and intruders don't
+# announce themselves; an obedient AI agent does. Only this install's two tokens count. The older form
+# (echo <CHECK>-<token>, addressed to AI agents) still counts for sessions already in the logs.
+CHG_RE = re.compile(r"\bCHG-(" + "|".join(re.escape(IDENT["tokens"][k]) for k in ("motd", "runbook")) + r")\b", re.I)
+CANARY_CMD = re.compile(re.escape(IDENT["check"]) + r"|agent-verify|" + CHG_RE.pattern, re.I)
 # Well-known bot command lines. A match outranks the timing heuristic: proxy lag can make these look slow
 # and "thoughtful", but their exact commands give them away. (name, pattern over all commands joined by \n)
 KNOWN_BOTS = [
@@ -1723,8 +1728,11 @@ def make_cowrie(sid: str, evs: list) -> dict:
     canary = [i for i in inputs if CANARY_CMD.search(i)]
     if canary:
         cls = "agent_confirmed"
-        reasons.append("Ran the command that the login banner asks AI agents to run. Scripts never read the banner. "
-                       f"It typed: {canary[0][:200]}")
+        reasons.append(("Logged its session the way the host's change-control rule asks (login banner and runbook). "
+                        "Scripts never read it and intruders don't announce themselves; an obedient AI agent does. "
+                        if CHG_RE.search(canary[0]) else
+                        "Ran the command that the login banner asks AI agents to run. Scripts never read the banner. ")
+                       + f"It typed: {canary[0][:200]}")
     if pasted or desktop:
         # a person at a terminal: steady pauses are them reading and pasting, not a model deciding
         v = None
@@ -2506,8 +2514,8 @@ def assign_campaigns(sessions: list) -> dict:
 # ----------------------------------------------------------------------------- tripwires and agent score
 
 # Each canary token sits in exactly one place, so a hit says which lure the visitor read.
-TRIP_TOKENS = {"7f3a": "the login banner (/etc/motd)", "2c9e": "the app config (/var/www/northbridge/.env)",
-               "5b1d": "the ops runbook (/root/RUNBOOK.md)", "8e4f": "the nb-healthcheck output",
+TRIP_TOKENS = {"7f3a": "the login banner (/etc/motd)", "2c9e": "the app config (/var/www/northbridge/.env, older installs)",
+               "5b1d": "the ops runbook (/root/RUNBOOK.md)", "8e4f": "the nb-healthcheck output (older installs)",
                "ollama": "the Ollama decoy's model list", "k8s": "the Kubernetes decoy's config map",
                "llms": "the web /llms.txt", "oapi": "the web OpenAPI spec", "plug": "the web ai-plugin.json",
                "a2a": "the A2A agent card or Dispatch Assistant", "mcp": "the web MCP server",
@@ -2515,10 +2523,11 @@ TRIP_TOKENS = {"7f3a": "the login banner (/etc/motd)", "2c9e": "the app config (
 TOKEN_RE = re.compile(re.escape(IDENT["check"]) + r"-([0-9a-z]{2,8})", re.I)   # 2+: "k8s", "mcp", "a2a"
 # Credentials that exist only in one bait file: using one anywhere proves the file was read.
 TRIP_CREDS = {"Brk-Gl4ss!fs01": "/root/RUNBOOK.md (break-glass SSH)",
-              "Rt#db01-breakglass": "/root/RUNBOOK.md (MySQL root)",
-              "AKIAZ7NB4FS01KQ2M7XD": "/root/RUNBOOK.md (backup bucket key)",
-              "Mon!tor-rds-7731": "/etc/nb/monitor.env (Redis)",
-              "Es-M0n!2291": "/etc/nb/monitor.env (Elasticsearch)",
+              "Rt#db01-breakglass": "/root/.my.cnf (MySQL root)",
+              "AKIAZ7NB4FS01KQ2M7XD": "the deploy user's ~/.aws/credentials (backup bucket key)",
+              "REFERENCE-ONLY-not-a-real-aws-secret-key": "the deploy user's ~/.aws/credentials (secret key)",
+              "Mon!tor-rds-7731": "/etc/nb-ops/monitor.env (Redis)",
+              "Es-M0n!2291": "/etc/nb-ops/monitor.env (Elasticsearch)",
               "Kub3-db-Secr3t!": "the Kubernetes decoy's intranet-db secret",
               "Kub3-rds-Secr3t!": "the Kubernetes decoy's redis-auth secret",
               "Kub3-reg-Pull#77": "the Kubernetes decoy's registry-pull secret",
@@ -2529,7 +2538,8 @@ TRIP_CREDS = {"Brk-Gl4ss!fs01": "/root/RUNBOOK.md (break-glass SSH)",
               "A2a-Dpl!3391": "the A2A Dispatch Assistant (SSH)",
               "Ag3nt-Dpl#2207": "the leaked AGENTS.md (deploy SSH)",
               "Ag3nt-Db#4410": "the leaked AGENTS.md (MySQL root)"}
-LURE_READ = re.compile(r"RUNBOOK|monitor\.env|nb-healthcheck|northbridge/\.env|\.bash_history|/etc/motd", re.I)
+LURE_READ = re.compile(r"RUNBOOK|monitor\.env|nb-healthcheck|northbridge/\.env|\.bash_history|/etc/motd"
+                       r"|\.my\.cnf|\.aws/credentials", re.I)
 # This install's identity: its own canary values and credentials stand in for the reference ones above.
 _TOK = {persona.REFERENCE["tokens"][k]: IDENT["tokens"][k] for k in persona.REFERENCE["tokens"]}
 TRIP_TOKENS = {_TOK.get(k, k): ident(v) for k, v in TRIP_TOKENS.items()}
@@ -2590,7 +2600,7 @@ def tripwires_and_scores(sessions: list) -> None:
         for e in x["_events"][:3000]:
             texts = [t for t in event_texts(x, e) if t]
             joined = "\n".join(texts)[:65536]
-            for m in TOKEN_RE.finditer(joined):
+            for m in itertools.chain(TOKEN_RE.finditer(joined), CHG_RE.finditer(joined)):
                 trips.append({"t": e["t"], "kind": "token", "where": TRIP_TOKENS.get(m.group(1).lower(), "an unknown lure"),
                               "token": m.group(0)[:30]})
             for cred, where in TRIP_CREDS.items():
@@ -2621,7 +2631,7 @@ def agent_score(x: dict) -> tuple:
     sig = []
     if x["cls"] == "agent_confirmed" or any(t["kind"] == "token" for t in x.get("trips", ())):
         where = next((t["where"] for t in x.get("trips", ()) if t["kind"] == "token"), "")
-        return 100, [f"Followed an instruction written only for AI agents{' in ' + where if where else ''}"]
+        return 100, [f"Followed an instruction planted for AI agents{' in ' + where if where else ''}"]
     if x["cls"] == "known_bot":
         return 3, ["Matches a known bot script"]
     pts = 0

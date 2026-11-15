@@ -120,7 +120,8 @@ Write new persona text with the reference values ("Northbridge Logistics", `file
 
 `persona.json` holds this install's identity. `persona.py` lists every reference value it replaces:
 company and domain (`northbridge-logistics.com`, `northbridge.local`), host name, the
-`NB-AGENT-CHECK` prefix and the four file canary values, the 15 tripwire credentials, the front
+`NB-AGENT-CHECK` prefix and the four file canary values (also as `CHG-<value>` in the change-control
+rule), the 16 tripwire credentials, the front
 VM's private IP, and names built from the company's initials (`nb-intranet`, `nb_admin`, shipment
 numbers like `NB-2026-104241`). The honeypot's own plumbing (`nb-collect`, `nb-reset`, `/etc/nb-honeypot.conf`)
 runs outside what attackers see and keeps its name.

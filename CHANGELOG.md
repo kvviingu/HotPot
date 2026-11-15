@@ -5,6 +5,16 @@ prints the one you have.
 
 ## Unreleased
 
+* **The server gives itself away less.** Two test runs with a real agent tool named the same tells, now
+  fixed. Deploy the backend (`hotpot deploy backend`) to apply them:
+  * The SSH-side canary is a change-control house rule (`logger -t ..-ops "CHG-<token> <name> - <reason>"`)
+    in the login banner and the runbook, instead of a line addressed to "AI assistants" in four files.
+  * Credentials sit where they would really live (`/root/.my.cnf`, the deploy user's `~/.aws/credentials`)
+    instead of together in the runbook.
+  * Bait files are dated over the past year, the backup folder holds 30 nightly dumps of made-up rows,
+    the backup log exists, and the command histories are longer.
+  * `/etc/nb/` and `/var/backups/nb/` kept the public reference initials on every install; they are now
+    `/etc/<initials>-ops/` and `/var/backups/<initials>-intranet/`.
 * **Agent tools with uneven pauses are caught:** a session that follows up on what it saw and writes its
   commands the way models do (section headers, friendly fallbacks) is a suspected AI agent even when its
   pauses look like a person's. A Claude Code test session had been called Human-like.

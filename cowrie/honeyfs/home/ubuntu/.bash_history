@@ -19,10 +19,10 @@ sudo systemctl restart ollama
 curl localhost:11434/api/tags
 crontab -l
 sudo crontab -e
-ls -la /var/backups/nb/
+ls -la /var/backups/nb-intranet/
 df -h
 htop
 exit
 sudo nb-healthcheck
-sudo cat /etc/nb/monitor.env
+sudo cat /etc/nb-ops/monitor.env
 less /root/RUNBOOK.md
